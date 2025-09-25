@@ -1,9 +1,11 @@
 from slurm import init_signal_handler, init_distributed_mode
 from utils import bool_flag, initialize_exp
+from logging import getLogger
 import numpy as np
 from numba import njit
 import time
 import random
+import statistics
 import torch
 from threerank import get_three_rank,legendre_symbol
 
@@ -18,7 +20,7 @@ from torch.nn import functional as F
 from torch.utils.data import Dataset
 from torch.utils.data.dataloader import DataLoader
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 from makemoretokens import ModelConfig, CharDataset, Transformer, Bigram, MLP, RNN, BoW, InfiniteDataLoader, evaluate, generate
 import os
@@ -27,6 +29,9 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 NB_AP=20
 primes = [3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73]
+assert len(primes) > NB_AP
+
+logger = getLogger()
 
 
 def get_parser():
@@ -90,6 +95,12 @@ def get_parser():
     return parser
 
 class datapoint():
+    """
+    Main object class representing a group class. Contains:
+     val: (absolute value of the) discriminant
+     ap: list of the NB_AP first legendre symbols
+     score: 3-rank
+    """
     def __init__(self,val):
         self.val=val
         self.ap = [-2]*NB_AP
@@ -97,14 +108,35 @@ class datapoint():
     def calc_ap(self):
         for i in range(NB_AP): #TODO
             self.ap[i] = legendre_symbol(self.val,primes[i]) + 1
-    def calc_score(self);
-        self.score=get_three_rank() 
+    def calc_score(self):
+        self.score=get_three_rank(self.val)
 
 
 def do_score(data):
+    """
+    Does the local search, computate the score, and features (if relevant)
+    """
     for d in data:
         d.calc_ap()
         d.calc_score()
+
+    # Compute and log statistics
+    valid_data = [d for d in data if d.score >= 0]
+    invalid_data = [d for d in data if d.score < 0]
+    scores = [d.score for d in valid_data]
+    mean = statistics.mean(scores)
+    median = statistics.median(scores)
+    stdev = statistics.stdev(scores)
+    max_score = max(scores)
+    logger.info(f"### Score distribution ###")
+    logger.info(f"Invalid examples: {len(invalid_data)}")
+    logger.info(f"Valid examples {len(valid_data)}")
+    logger.info(f"Mean score: {mean}")
+    logger.info(f"Median score: {median}")
+    logger.info(f"stdev score: {stdev}")
+    logger.info(f"Max score: {max_score}")
+
+
     return [d for d in data if d.score >= 0]
 
 
@@ -120,6 +152,9 @@ def load_data(infile):
     return data
 
 def generate_and_score(args):
+    """
+    Generation method if no data
+    """
     initvals = np.random.randint(1, args.max_int, size=args.gensize, dtype=np.int64)
     data = []
     for v in initvals:
@@ -131,11 +166,17 @@ def generate_and_score(args):
     return data
 
 def select_best(n, data):
+    """
+    Select the n-best data shuffled
+    """
     if len(data) <= n:
         return data
     return random.shuffle(data.sort(key=lambda x: x.score, reverse=True)[:n])
 
-def encode(d,base=10, reverse=False):
+def encode(d,base=10, reverse=False) -> list[str]:
+    """
+    Encode the data as a list of tokens containing the ap and the value of the discriminant
+    """
     lst = []
     for s in d.ap:
         lst.append(str(s))
@@ -149,7 +190,10 @@ def encode(d,base=10, reverse=False):
     else:
         return lst + w[::-1]
 
-def decode(lst, base=10, reverse=False):
+def decode(lst, base=10, reverse=False)-> Optional[datapoint]:
+    """
+    Decode a list of tokens to return a datapoint with the corresponding discriminant. Note: only reads the determinant and do not return the ap
+    """
     if len(lst) <= NB_AP + 1:
         return None
     lst = lst[NB_AP:]
@@ -184,6 +228,9 @@ def detokenize(data, base, reverse):
     return res
 
 def make_train_test(data,ntest):
+    """
+    Create a train and test dataset from a dataset.
+    """
     rp = np.random.permutation(data)
     return rp[:-ntest], rp[-ntest:]
 
@@ -255,6 +302,7 @@ if __name__ == '__main__':
     args.vocab_size = len(symbols) + 1
     args.block_size = args.max_len
 
+    # Initialize the data
     if args.input_file != '':
         data = load_data(args.input_file)
     else: 
@@ -263,6 +311,7 @@ if __name__ == '__main__':
     
     data = select_best(args.pop_size, data)
 
+    #Initialize transformer
     model = Transformer(args)
     model.to(args.device)
     model_path = os.path.join(args.dump_path, "model.pt")
@@ -270,9 +319,14 @@ if __name__ == '__main__':
         logger.info("resuming from existing model")
         model.load_state_dict(torch.load(model_path))
     
+    #Create datasets
     train, test = make_train_test(data, args.ntest)
-    for epoch in range(args.max_epochs):
+    logger.info(f"Initial train and test generated. Size are train: {len(train)}, test {len(test)}")
 
+    # Loop of PatternBoost
+    n_epoch = 0
+    for epoch in range(args.max_epochs):
+        logger.info(f"==== Starting Epoch {n_epoch} =====")
         # tokenize 
         train_words = [encode(d,args.base,args.reverse) for d in train]
         test_words = [encode(d,args.base,args.reverse) for d in test]
@@ -288,12 +342,22 @@ if __name__ == '__main__':
         new_data = detokenize(new_words,args.base,args.reverse) 
 
         new_data = do_score(new_data)
+
+        #Possible to add another generation method here and mix it before taking the best
+
         new_data = select_best(args.pop_size, new_data)
 
         new_train, test = make_train_test(new_data, args.ntest)
+        logger.info(f"New train and test generated. Size are train: {len(new_train)}, test {len(test)}")
+        #Get all examples of previous train and current train and then select best.
         train = select_best(args.pop_size, train + new_train)
+        n_epoch += 1
 
 
+
+
+
+    ##### TO BE UPDATED #####
 
     # init datasets
     for i in range(1,args.max_epochs):
