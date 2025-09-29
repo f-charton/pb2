@@ -1,6 +1,9 @@
 from numba import njit
 import math
 from collections import Counter
+from .environment import DataPoint
+
+
 
 
 
@@ -222,3 +225,36 @@ def legendre_symbol(a: int, p: int) -> int:
         return 0
     r = pow(a, (p - 1) // 2, p)   # r ∈ {1, p-1}
     return 1 if r == 1 else -1
+
+
+class GroupClass(DataPoint):
+    """
+    Main object class representing a group class. Contains:
+     val: (absolute value of the) discriminant
+     ap: list of the NB_AP first legendre symbols
+     score: 3-rank
+    """
+    NB_AP=20
+    primes = [3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73]
+    def __init__(self,val):
+      super().__init__(None)
+      assert len(self.primes) >= self.NB_AP
+      self.val=val
+      self.ap = [-2]*self.NB_AP
+      self.score = -1
+
+    def calc_features(self):
+      for i in range(self.NB_AP): #TODO
+          self.ap[i] = legendre_symbol(self.val,self.primes[i]) + 1
+    
+    def calc_score(self):
+        self.score=get_three_rank(self.val)
+
+    @classmethod  
+    def from_string(cls,data):
+        dat,sc = data.split('\t')
+        d = cls(int(dat))
+        d.score = int(sc)
+        d.calc_features()
+        return d
+
