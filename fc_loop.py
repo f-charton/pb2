@@ -34,7 +34,7 @@ def get_parser():
     parser.add_argument('--base', type=int, default=10, help='Encoding base')
     parser.add_argument('--reverse', type=bool_flag, default=False, help='Reversed digits')
     parser.add_argument('--nb_ap', type=int, default=10, help='Number of ap')
-    parser.add_argument('--max_len', type=int, default=150, help='Block size, maximumlength of sequences')
+    parser.add_argument('--max_len', type=int, default=500, help='Block size, maximumlength of sequences')
     parser.add_argument('--task', type=str, default="GroupClass", help='Math problem to be addressed')
     parser.add_argument('--input_file', type=str, default="", help='Optional input file with data')
 
