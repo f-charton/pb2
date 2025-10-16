@@ -1,7 +1,9 @@
+from typing import Optional
 from numba import njit
+import numpy as np
 import math
 from collections import Counter
-from .environment import DataPoint
+from environment import DataPoint
 
 
 
@@ -226,6 +228,23 @@ def legendre_symbol(a: int, p: int) -> int:
     r = pow(a, (p - 1) // 2, p)   # r ∈ {1, p-1}
     return 1 if r == 1 else -1
 
+def encode_threeranks(d,base=10, reverse=False) -> list[str]:
+    """
+    Encode the data as a list of tokens containing the ap and the value of the discriminant
+    """
+    lst = []
+    for s in d.ap:
+        lst.append(str(s))
+    v = d.val
+    w = []
+    while v > 0: #@Francois I change d in v, please check I'm correct and revert otherwise.
+        w.push_back(str(v%base))
+        v=v//base
+    if reverse:
+        return lst + w
+    else:
+        return lst + w[::-1]
+
 
 class GroupClass(DataPoint):
     """
@@ -236,10 +255,10 @@ class GroupClass(DataPoint):
     """
     NB_AP=20
     primes = [3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73]
-    def __init__(self,val):
-      super().__init__(None)
+    def __init__(self,args):
+      super().__init__(args)
       assert len(self.primes) >= self.NB_AP
-      self.val=val
+      self.val=args.val or np.random.randint(1, args.max_int, size=args.gensize, dtype=np.int64)
       self.ap = [-2]*self.NB_AP
       self.score = -1
 
@@ -258,3 +277,33 @@ class GroupClass(DataPoint):
         d.calc_features()
         return d
 
+    def encode(self,base:int=10, reverse=False) -> list[str]:
+        return encode_threeranks(self,base,reverse)
+
+    def decode(self,lst, base=10, reverse=False)-> Optional["GroupClass"]:
+      """
+      Decode a list of tokens to return a datapoint with the corresponding discriminant. Note: only reads the determinant and do not return the ap
+      """
+      if len(lst) <= GroupClass.NB_AP + 1:
+          return None
+      lst = lst[GroupClass.NB_AP:]
+      val=0
+      if reverse:
+          try:
+              for d in lst[::-1]:
+                  v = int(d)
+                  if v<0 or v>=base:
+                      return None
+                  val = val*base + v
+          except:
+              return None
+      else:
+          try:
+              for d in lst:
+                  v = int(d)
+                  if v<0 or v>=base:
+                      return None
+                  val = val*base + v
+          except:
+              return None
+      return GroupClass(val)

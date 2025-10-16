@@ -9,9 +9,10 @@ import torch
 from environment import do_score
 
 import torch
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from threerank import GroupClass
+from Sidon  import SidonSetDataPoint
 from model import CharDataset, Transformer, InfiniteDataLoader, evaluate, generate
 import os
 import argparse
@@ -34,12 +35,18 @@ def get_parser():
     parser.add_argument('--reverse', type=bool_flag, default=False, help='Reversed digits')
     parser.add_argument('--nb_ap', type=int, default=10, help='Number of ap')
     parser.add_argument('--max_len', type=int, default=150, help='Block size, maximumlength of sequences')
+    parser.add_argument('--task', type=str, default="GroupClass", help='Math problem to be addressed')
+    parser.add_argument('--input_file', type=str, default="", help='Optional input file with data')
+
+    #Generation arguments
+    #GroupClass
+    parser.add_argument('--val', type=int, default="-1", help='absolute value of the discriminant, generated randomly if -1')
 
 
     # Makemore params
     parser.add_argument('--num-workers', '-n', type=int, default=8, help="number of data workers for both train/test")
     parser.add_argument('--max-steps', type=int, default=20000, help="max number of optimization steps to run for, or -1 for infinite.")
-    parser.add_argument('--max_epochs', type=int, default= 30000, help='number of epochs')
+    # parser.add_argument('--max_epochs', type=int, default= 30000, help='number of epochs')
     parser.add_argument('--seed', type=int, default=-1, help="seed")
     # sampling
     parser.add_argument('--top-k', type=int, default=-1, help="top-k for sampling, -1 means no top-k")
@@ -79,7 +86,7 @@ def get_parser():
 
     return parser
 
-
+train_classes = {"GroupClass":GroupClass, "Sidon":SidonSetDataPoint}
 
 def load_data(infile, classname):
     data = []
@@ -89,15 +96,14 @@ def load_data(infile, classname):
             data.append(d)
     return data
 
-def generate_and_score(args):
+def generate_and_score(args, classname):
     """
     Generation method if no data
     """
-    initvals = np.random.randint(1, args.max_int, size=args.gensize, dtype=np.int64)
     data = []
-    for v in initvals:
-        d = GroupClass(v) 
-        d.calc_ap()
+    for v in range(args.gensize):
+        d = classname(args)
+        d.calc_features()
         d.calc_score()
         if d.score >= 0:
             data.append(d)
@@ -115,46 +121,14 @@ def encode(d,base=10, reverse=False) -> list[str]:
     """
     Encode the data as a list of tokens containing the ap and the value of the discriminant
     """
-    lst = []
-    for s in d.ap:
-        lst.append(str(s))
-    v = d.val
-    w = []
-    while d >0:
-        w.push_back(str(d%base))
-        d=d//base
-    if reverse:
-        return lst + w
-    else:
-        return lst + w[::-1]
+    return d.encode(base=base,reverse=reverse)
 
-def decode(lst, base=10, reverse=False)-> Optional[GroupClass]:
+
+def decode(lst, classname, base=10, reverse=False)-> Optional[Any]:
     """
-    Decode a list of tokens to return a datapoint with the corresponding discriminant. Note: only reads the determinant and do not return the ap
+    Decode a list of tokens to return a DataPoint classname with the corresponding discriminant. Note: only reads the determinant and do not return the ap
     """
-    if len(lst) <= GroupClass.NB_AP + 1:
-        return None
-    lst = lst[GroupClass.NB_AP:]
-    val=0
-    if reverse:
-        try:
-            for d in lst[::-1]:
-                v = int(d)
-                if v<0 or v>=base:
-                    return None
-                val = val*base + v
-        except:
-            return None
-    else:
-        try:
-            for d in lst:
-                v = int(d)
-                if v<0 or v>=base:
-                    return None
-                val = val*base + v
-        except:
-            return None
-    return GroupClass(val)
+    return classname.decode(lst)
 
 def detokenize(data, base, reverse):
     res = []
@@ -267,7 +241,9 @@ if __name__ == '__main__':
     args.vocab_size = len(symbols) + 1
     args.block_size = args.max_len
 
-    
+    #Initialize class to be adressed
+    classname = train_classes[args.task]
+
     #Initialize transformer
     model = Transformer(args)
     model.to(args.device)
@@ -275,7 +251,8 @@ if __name__ == '__main__':
     if os.path.isfile(model_path): 
         logger.info("resuming from existing model")
         model.load_state_dict(torch.load(model_path))
-        new_words = generate_sample(model)
+        init_train_dataset = CharDataset(words = [],chars=symbols,max_word_length=args.max_output_length)
+        new_words = generate_sample(model,init_train_dataset)
         # decode 
         data = detokenize(new_words,args.base,args.reverse) 
         data = do_score(data)
@@ -284,7 +261,7 @@ if __name__ == '__main__':
         if args.input_file != '':
             data = load_data(args.input_file, GroupClass)
         else: 
-            data = generate_and_score(args)
+            data = generate_and_score(args,classname=classname)
     args.gen_size = len(data)
     
     data = select_best(args.pop_size, data)

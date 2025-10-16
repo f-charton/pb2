@@ -190,7 +190,7 @@ def generate(model, idx, max_new_tokens, temperature=1.0, do_sample=False, top_k
 
     return idx
 
-def print_samples(num=10):
+def print_samples(args,model,train_dataset,num=10):
     """ samples from the model and pretty prints the decoded samples """
     X_init = torch.zeros(num, 1, dtype=torch.long).to(args.device)
     top_k = args.top_k if args.top_k != -1 else None
@@ -212,7 +212,7 @@ def print_samples(num=10):
         print(word)
     print('-'*80)
 
-def write_samples(num=10, new_file=False, use_logger=False):
+def write_samples(args,model,train_dataset,num=10, new_file=False, use_logger=False):
     """ samples from the model and pretty prints the decoded samples """
     X_init = torch.zeros(num, 1, dtype=torch.long).to(args.device)
     top_k = args.top_k if args.top_k != -1 else None
@@ -260,7 +260,7 @@ def evaluate(model, dataset, device, batch_size=50, max_batches=None):
     model.train() # reset model back to training mode
     return mean_loss
 
-def logprobs(dataset):
+def logprobs(model,dataset):
     """Return the log of the probability that the model will generate a given sequence.
     
     Note: What we actually calculate is the probability given a sequence (A,B,..,X) that the
@@ -269,7 +269,7 @@ def logprobs(dataset):
     """
 
     encoded_words = torch.stack(tuple([dataset[i][0] for i in range(len(dataset))])).to(args.device)
-    logits, _ =model(encoded_words)
+    logits, _ = model(encoded_words)
     logits = logits.to('cpu')
     probs = F.softmax(logits, dim=-1).detach().numpy() # a tensor of shape (len(dataset), block_size, #tokens+1)
 
@@ -345,4 +345,3 @@ class InfiniteDataLoader:
             self.data_iter = iter(self.train_loader)
             batch = next(self.data_iter)
         return batch
-
