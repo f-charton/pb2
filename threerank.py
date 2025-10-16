@@ -258,7 +258,10 @@ class GroupClass(DataPoint):
     def __init__(self,args):
       super().__init__(args)
       assert len(self.primes) >= self.NB_AP
-      self.val=args.val or np.random.randint(1, args.max_int, size=args.gensize, dtype=np.int64)
+      if args.val >= 0:
+         self.val = args.val
+      else:
+          self.val = np.random.randint(1, args.max_int)
       self.ap = [-2]*self.NB_AP
       self.score = -1
 
