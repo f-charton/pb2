@@ -14,22 +14,21 @@ class SidonSetDataPoint(DataPoint):
 
     def __init__(self, params):
         super().__init__(params)
-        self.N: int = int(params["N"])
-        self.M: int = int(params.get("M", self.N))
-        self.hard : bool = params.get("hard",True)
-        self.val : List = []
+        self.N: int = int(params.N)
+        self.M: int = int(params.M)
+        self.hard : bool = params.hard
 
-        seed = params.get("seed", None)
+        seed = params.seed
         if seed is not None:
             random.seed(seed)
 
-        self.steps: int = int(params.get("steps", 20000))
+        self.steps: int = int(params.sidon_steps)
 
         #Probabilities of the different moves for the local search
 
-        self.insert_prob: float = float(params.get("insert_prob", 0.35))
-        self.delete_prob: float = float(params.get("delete_prob", 0.10))
-        self.shift_prob: float  = float(params.get("shift_prob", 0.55))
+        self.insert_prob: float = float(params.insert_prob)
+        self.delete_prob: float = float(params.delete_prob)
+        self.shift_prob: float  = float(params.shift_prob)
 
         total_prob = self.insert_prob + self.delete_prob + self.shift_prob
         if total_prob <= 0:
@@ -40,23 +39,25 @@ class SidonSetDataPoint(DataPoint):
             self.shift_prob  /= total_prob
 
 
-        self.temp: float = float(params.get("temp0", 0.5))
-        self.temp_decay: float = float(params.get("temp_decay", 0.9995))
-        self.mod_features: Tuple[int, ...] = tuple(params.get("mod_features", (7, 11)))
+        self.temp: float = float(params.temp0)
+        self.temp_decay: float = float(params.temp_decay)
 
         # Initialize candidate
-        self.init_method = params.get("init_method", "random_greedy")
+        self.init_method = params.init_method or "random_greedy"
 
-        if params.get("val") is not None:
-            self.val = sorted(set(int(x) for x in params["val"] if 0 <= int(x) <= self.N))
+        if isinstance(params.val,list):
+            self.val = sorted(set(int(x) for x in params.val if 0 <= int(x) <= self.N))
         else:
+            if params.init_k > 0:
+                target_k = int(params.init_k)
+            else:
+                target_k = max(1, int(math.sqrt(self.N)))
             if self.init_method == "random_greedy":
-                target_k = int(params.get("init_k", max(1, int(math.sqrt(self.N)))))
                 self.val = self._seed_random_greedy(target_k)
             elif self.init_method == "mian_chowla":
                 self.val = self._seed_mian_chowla()
             else:
-                self.val = self._seed_evenly_spaced(int(params.get("init_k", max(1, int(math.sqrt(self.N))))), jitter=bool(params.get("jitter_init", True)))
+                self.val = self._seed_evenly_spaced(int(params.init_k), jitter=bool(params.jitter_init))
 
         # Using the fact that a set is Sidon is all the positive differences between to elements a-x are distincts. We keep in memory the differences
         self.diffs_count = [0] * (self.N + 1)
@@ -86,13 +87,13 @@ class SidonSetDataPoint(DataPoint):
         """
         pass
 
-    def encode(self, base=10):
+    def encode(self, base=10, reverse=False):
         w = []
         for el in self.val:
             v = el
             curr_w = []
             while v > 0: #@Francois I change d in v, please check I'm correct and revert otherwise.
-                curr_w.push_back(str(v%base))
+                curr_w.append(str(v%base))
                 v=v//base
             w.extend(curr_w)
             w.append("|")

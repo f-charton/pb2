@@ -39,12 +39,32 @@ def get_parser():
     parser.add_argument('--input_file', type=str, default="", help='Optional input file with data')
 
     #Generation arguments
+
+    ### ADD HERE THE PARAMETERS SPECIFIC TO YOUR PROBLEM ###
+
+    parser.add_argument('--symbols', type=str, default="|", help="symbols specific to the problem, separated by ',' ")
+
     #GroupClass
-    parser.add_argument('--val', type=int, default="-1", help='absolute value of the discriminant, generated randomly if -1')
+    parser.add_argument('--val', type=int, default=-1, help='absolute value of the discriminant, generated randomly if -1')
+
+    #SidonSets
+    parser.add_argument('--N', type=int, default="100", help='Defines the set {0,....,N} in which the Sidon subset is looked for')
+    parser.add_argument('--M', type=int, default="1", help='reward weight for length of Sidon Sets')
+    parser.add_argument('--hard', type=bool_flag, default="true", help='whether only sidon sets are accepted')
+    parser.add_argument('--insert_prob', type=float, default=0.33, help='probability of insert move in the local search')
+    parser.add_argument('--delete_prob', type=float, default=0.33, help='probability of delete move in the local search')
+    parser.add_argument('--shift_prob', type=float, default=0.33, help='probability of shift move in the local search')
+    parser.add_argument('--temp0', type=float, default=0.33, help='temp0 of the local search')
+    parser.add_argument('--temp_decay', type=float, default=0.33, help='temp_decay of the local search')
+    parser.add_argument('--init_method', type=str, default="random_greedy", help='method of generation')
+    parser.add_argument("--init_k", type=int, default=-1, help="by default size of the Sidon set that one tries to construct in the generation")
+    parser.add_argument("--jitter_init", type=bool_flag, default="true", help="if generation is evenly spaced, should there be random displacements")
+    parser.add_argument('--sidon_steps', type=int, default=200000, help='number of steps in local search')
+
 
 
     # Makemore params
-    parser.add_argument('--num-workers', '-n', type=int, default=8, help="number of data workers for both train/test")
+    parser.add_argument('--num-workers', '-n', type=int, default=4, help="number of data workers for both train/test")
     parser.add_argument('--max-steps', type=int, default=20000, help="max number of optimization steps to run for, or -1 for infinite.")
     # parser.add_argument('--max_epochs', type=int, default= 30000, help='number of epochs')
     parser.add_argument('--seed', type=int, default=-1, help="seed")
@@ -113,9 +133,13 @@ def select_best(n, data):
     """
     Select the n-best data shuffled
     """
+    to_shuff = data.copy()
     if len(data) <= n:
         return data
-    return random.shuffle(data.sort(key=lambda x: x.score, reverse=True)[:n])
+    to_shuff.sort(key=lambda x: x.score, reverse=True) # sort method returns None
+    to_shuff = to_shuff[:n]
+    random.shuffle(to_shuff)
+    return to_shuff
 
 def encode(d,base=10, reverse=False) -> list[str]:
     """
@@ -143,7 +167,8 @@ def make_train_test(data,ntest):
     """
     Create a train and test dataset from a dataset.
     """
-    rp = np.random.permutation(data)
+    indices = np.random.permutation(len(data))
+    rp = [data[i] for i in indices]
     return rp[:-ntest], rp[-ntest:]
 
 def train(model, loader, optim, test_dataset):
@@ -238,6 +263,7 @@ if __name__ == '__main__':
     torch.cuda.manual_seed_all(args.seed)
     # os.makedirs(args.work_dir, exist_ok=True)
     symbols = [str(i) for i in range(max(args.base,3))]
+    symbols.extend(args.symbols.split(","))
     args.vocab_size = len(symbols) + 1
     args.block_size = args.max_len
 
@@ -258,7 +284,7 @@ if __name__ == '__main__':
         data = do_score(data)
     else:    
         # Initialize the data
-        if args.input_file != '':
+        if args.input_file != "":
             data = load_data(args.input_file, GroupClass)
         else: 
             data = generate_and_score(args,classname=classname)
@@ -267,16 +293,16 @@ if __name__ == '__main__':
     data = select_best(args.pop_size, data)
 
     #Create datasets
-    train, test = make_train_test(data, args.ntest)
-    logger.info(f"Initial train and test generated. Size are train: {len(train)}, test {len(test)}")
+    train_set, test_set = make_train_test(data, args.ntest)
+    logger.info(f"Initial train and test generated. Size are train: {len(train_set)}, test {len(test_set)}")
 
     # Loop of PatternBoost
     n_epoch = 0
     for epoch in range(args.max_epochs):
         logger.info(f"==== Starting Epoch {n_epoch} =====")
         # tokenize 
-        train_words = [encode(d,args.base,args.reverse) for d in train]
-        test_words = [encode(d,args.base,args.reverse) for d in test]
+        train_words = [encode(d,args.base,args.reverse) for d in train_set]
+        test_words = [encode(d,args.base,args.reverse) for d in test_set]
         # data loaders
         train_dataset = CharDataset(train_words, symbols, args.max_output_length)
         test_dataset = CharDataset(test_words, symbols, args.max_output_length)
@@ -298,10 +324,10 @@ if __name__ == '__main__':
 
         new_data = select_best(args.pop_size, new_data)
 
-        new_train, test = make_train_test(new_data, args.ntest)
-        logger.info(f"New train and test generated. Size are train: {len(new_train)}, test {len(test)}")
+        new_train, test_set = make_train_test(new_data, args.ntest)
+        logger.info(f"New train and test generated. Size are train: {len(new_train)}, test {len(test_set)}")
         #Get all examples of previous train and current train and then select best.
-        train = select_best(args.pop_size, train + new_train)
+        train_set = select_best(args.pop_size, train_set + new_train)
         n_epoch += 1
 
 

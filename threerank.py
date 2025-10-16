@@ -238,7 +238,7 @@ def encode_threeranks(d,base=10, reverse=False) -> list[str]:
     v = d.val
     w = []
     while v > 0: #@Francois I change d in v, please check I'm correct and revert otherwise.
-        w.push_back(str(v%base))
+        w.append(str(v%base))
         v=v//base
     if reverse:
         return lst + w
