@@ -21,11 +21,9 @@ logger = getLogger()
 
 
 def get_parser():
-    parser = argparse.ArgumentParser('Generate training sample of low braids via reservoir sampling')
+    parser = argparse.ArgumentParser('A simple PatternBoost loop for different maths problems')
     
     parser.add_argument('--sample-only', type=int, default=500000, help="sample the specified number from the model in each loop")
-    
-
     parser.add_argument('--gensize', type=int, default=1000000, help='Number of generate initial values')
     parser.add_argument('--max_int', type=int, default=1000000000000, help='maximum integer')
     parser.add_argument('--pop_size', type=int, default=10000, help='New examples at each epoch')
@@ -33,7 +31,6 @@ def get_parser():
     parser.add_argument('--ntest', type=int, default=5000, help='Size of test set')
     parser.add_argument('--base', type=int, default=10, help='Encoding base')
     parser.add_argument('--reverse', type=bool_flag, default=False, help='Reversed digits')
-    parser.add_argument('--nb_ap', type=int, default=10, help='Number of ap')
     parser.add_argument('--max_len', type=int, default=500, help='Block size, maximumlength of sequences')
     parser.add_argument('--task', type=str, default="GroupClass", help='Math problem to be addressed')
     parser.add_argument('--input_file', type=str, default="", help='Optional input file with data')
@@ -46,6 +43,7 @@ def get_parser():
 
     #GroupClass
     parser.add_argument('--val', type=int, default=-1, help='absolute value of the discriminant, generated randomly if -1')
+    parser.add_argument('--nb_ap', type=int, default=10, help='Number of ap')
 
     #SidonSets
     parser.add_argument('--N', type=int, default="100", help='Defines the set {0,....,N} in which the Sidon subset is looked for')
@@ -154,10 +152,10 @@ def decode(lst, classname, base=10, reverse=False)-> Optional[Any]:
     """
     return classname.decode(lst)
 
-def detokenize(data, base, reverse):
+def detokenize(data, classname, base, reverse):
     res = []
     for d in data:
-        l = decode(d,base,reverse)
+        l = decode(d,classname, base,reverse)
         if l is None:
             continue
         res.append(l)
@@ -280,7 +278,7 @@ if __name__ == '__main__':
         init_train_dataset = CharDataset(words = [],chars=symbols,max_word_length=args.max_output_length)
         new_words = generate_sample(model,init_train_dataset)
         # decode 
-        data = detokenize(new_words,args.base,args.reverse) 
+        data = detokenize(new_words,classname, args.base,args.reverse)
         data = do_score(data)
     else:    
         # Initialize the data
@@ -316,7 +314,7 @@ if __name__ == '__main__':
         new_words = generate_sample(model, train_dataset)
 
         # decode 
-        new_data = detokenize(new_words,args.base,args.reverse) 
+        new_data = detokenize(new_words,classname, args.base,args.reverse)
 
         new_data = do_score(new_data)
 
