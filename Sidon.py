@@ -50,8 +50,10 @@ class SidonSetDataPoint(DataPoint):
         else:
             if params.init_k > 0:
                 target_k = int(params.init_k)
-            else:
+            elif params.init_k == 0:
                 target_k = max(1, int(math.sqrt(self.N)))
+            else:
+                target_k = None
             if self.init_method == "random_greedy":
                 self.val = self._seed_random_greedy(target_k)
             elif self.init_method == "mian_chowla":
@@ -159,7 +161,7 @@ class SidonSetDataPoint(DataPoint):
 
 
 
-    def _seed_random_greedy(self, target_k: int) -> List[int]:
+    def _seed_random_greedy(self, target_k: Optional[int]) -> List[int]:
         """
         Random order through [0..N], uses the fact that a set is Sidon if
         all the positive differences a-x for a>x are distinct (here uses |x-a|)
@@ -180,7 +182,7 @@ class SidonSetDataPoint(DataPoint):
                 for a in A:
                     used_diff[abs(x - a)] = True
                 bisect.insort(A, x)
-                if len(A) >= target_k:
+                if target_k is not None and len(A) >= target_k:
                     break
         return A
 
