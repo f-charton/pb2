@@ -18,9 +18,9 @@ class SidonSetDataPoint(DataPoint):
         self.M: int = int(params.M)
         self.hard : bool = params.hard
 
-        seed = params.seed
-        if seed is not None:
-            random.seed(seed)
+        # seed = params.seed # Only for debug and not for running: it will generated the same candidate otherwise.
+        # if seed is not None:
+        #     random.seed(seed)
 
         self.steps: int = int(params.sidon_steps)
 
@@ -61,11 +61,14 @@ class SidonSetDataPoint(DataPoint):
             else:
                 self.val = self._seed_evenly_spaced(int(params.init_k), jitter=bool(params.jitter_init))
 
+        #Sort the set
+        self.val = sorted(self.val)
+
         # Using the fact that a set is Sidon is all the positive differences between to elements a-x are distincts. We keep in memory the differences
         self.diffs_count = [0] * (self.N + 1)
         self._build_diffs()
         # Initial score/features
-        self.score = self.calc_score()
+        self.calc_score()
         self.features = self.calc_features()
 
 
@@ -94,15 +97,41 @@ class SidonSetDataPoint(DataPoint):
         for el in self.val:
             v = el
             curr_w = []
-            while v > 0: #@Francois I change d in v, please check I'm correct and revert otherwise.
+            while v > 0:
                 curr_w.append(str(v%base))
                 v=v//base
             w.extend(curr_w)
             w.append("|")
         return w
 
-    def decode(self,lst):
-        pass
+    def decode(self, lst, base=10, reverse=False):
+
+        sub_lists = []
+        current = []
+        for item in lst:
+            if item == "|":
+                if current:
+                    sub_lists.append(current)
+                    current = []
+            else:
+                current.append(item)
+        if current:
+            sub_lists.append(current)
+
+        result = []
+        try:
+            for sub_list in sub_lists:
+                num = 0
+                for i, digit_str in enumerate(reversed(sub_list)):
+                    num += int(digit_str) * (base ** i)
+                if num > self.N:
+                    return None
+                result.append(num)
+        except ValueError as e:
+            return None
+        self.val = sorted(result)
+
+        return self
 
     def local_search(self) -> None:
         """
@@ -124,8 +153,8 @@ class SidonSetDataPoint(DataPoint):
             self.temp *= self.temp_decay
 
         # finalize score/features from scratch (safety)
-        self.score = self.calc_score()
-        self.features = self.calc_features()
+        self.calc_score()
+        self.calc_features()
 
     # -----------------------
     # Methods specific to the problem
@@ -172,18 +201,21 @@ class SidonSetDataPoint(DataPoint):
         used_diff = [False] * (self.N + 1)  #Store the positive differences
         for x in order:
             ok = True
+            local = set()
             for a in A:
                 d = abs(x - a)
-                if d == 0 or used_diff[d]:
+                if d == 0 or d in local or used_diff[d]:
                     #either we already have this value or this value will create a collision
                     ok = False
                     break
+                local.add(d)
             if ok:
                 for a in A:
                     used_diff[abs(x - a)] = True
                 bisect.insort(A, x)
                 if target_k is not None and len(A) >= target_k:
                     break
+        # print(f"Here generated A {A}")
         return A
 
     def _seed_mian_chowla(self) -> List[int]:
@@ -228,8 +260,10 @@ class SidonSetDataPoint(DataPoint):
         v = self.val
         for i, a in enumerate(v):
             for j in range(i+1, len(v)):
-                d = v[j] - a
+                d = abs(v[j] - a)
                 if seen[d] >= 1:
+                    # print("one collision")
+                    # print(self.val)
                     collisions += 1
                 seen[d] += 1
         return collisions
@@ -380,7 +414,6 @@ class SidonSetDataPoint(DataPoint):
         delta += self._add_element(new_x)
         return delta
 
-    # ---- move proposals ----
     def _move_shift(self) -> None:
         """
         First possibility of move for the local phase: select one element of the sum, shift it by +1 or -1
@@ -403,7 +436,7 @@ class SidonSetDataPoint(DataPoint):
             # compute delta collisions incrementally.
             # TODO Given that feasible is often false, we could change the functions add and remove elements to raise any collision, currently shifting twice might be costly
             # TODO we could keep sometimes with simulated annealing otherwise the local search will never create a valid example.
-            _ = self._shift_element(x, new_x)
+            _ = self._shift_element(old_x=x, new_x=new_x)
             feasible = (self._current_collisions() == 0)
             if feasible:
                 # keep; recompute score exactly

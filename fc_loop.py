@@ -46,7 +46,7 @@ def get_parser():
     parser.add_argument('--nb_ap', type=int, default=10, help='Number of ap')
 
     #SidonSets
-    parser.add_argument('--N', type=int, default="100", help='Defines the set {0,....,N} in which the Sidon subset is looked for')
+    parser.add_argument('--N', type=int, default="500", help='Defines the set {0,....,N} in which the Sidon subset is looked for')
     parser.add_argument('--M', type=int, default="1", help='reward weight for length of Sidon Sets')
     parser.add_argument('--hard', type=bool_flag, default="true", help='whether only sidon sets are accepted')
     parser.add_argument('--insert_prob', type=float, default=0.33, help='probability of insert move in the local search')
@@ -125,6 +125,7 @@ def generate_and_score(args, classname):
         d.calc_score()
         if d.score >= 0:
             data.append(d)
+    print("HERE some data",[el.val for el in data[:5]])
     return data
 
 def select_best(n, data):
@@ -284,7 +285,7 @@ if __name__ == '__main__':
     else:    
         # Initialize the data
         if args.input_file != "":
-            data = load_data(args.input_file, GroupClass)
+            data = load_data(args.input_file, classname=classname)
         else: 
             data = generate_and_score(args,classname=classname)
     args.gen_size = len(data)
@@ -301,6 +302,7 @@ if __name__ == '__main__':
         logger.info(f"==== Starting Epoch {n_epoch} =====")
         # tokenize 
         train_words = [encode(d,args.base,args.reverse) for d in train_set]
+        print("HERE some train words",train_words[:5])
         test_words = [encode(d,args.base,args.reverse) for d in test_set]
         # data loaders
         train_dataset = CharDataset(train_words, symbols, args.max_output_length)
