@@ -130,7 +130,6 @@ class SidonSetDataPoint(DataPoint):
         except ValueError as e:
             return None
         self.val = sorted(result)
-
         return self
 
     def local_search(self) -> None:

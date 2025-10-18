@@ -225,7 +225,7 @@ def generate_sample(model, train_dataset):
     sample_batch_size =args.gen_batch_size # reduce this if GPU crashes, increase it if sampling is slow
     todo = args.sample_only // sample_batch_size
     for i in range(todo):
-        if i % 100 ==0 : 
+        if i % 100 == 0 :
             logger.info(f'{i*sample_batch_size} / {todo * sample_batch_size} samples generated')
     
         X_init = torch.zeros(sample_batch_size, 1, dtype=torch.long).to(args.device)
@@ -315,9 +315,10 @@ if __name__ == '__main__':
         train(model, batch_loader,optimizer, test_dataset)
 
         new_words = generate_sample(model, train_dataset)
-
+        logger.info(f"New words generated length is {len(new_words)}")
         # decode 
         new_data = detokenize(data=new_words,params=args,classname=classname, base=args.base,reverse=args.reverse)
+        logger.info(f"New data detokenized length is {len(new_data)}")
 
         new_data = do_score(new_data)
 
