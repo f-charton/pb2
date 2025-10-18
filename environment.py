@@ -24,19 +24,22 @@ class DataPoint(ABC):
 
 
 def do_stats(n_invalid, data):
-    # Compute and log statistics
+    """
+    Compute and log statistics
+    """
     scores = [d.score for d in data if d.score >= 0]
-    mean = statistics.mean(scores)
-    median = statistics.median(scores)
-    stdev = statistics.stdev(scores)
-    max_score = max(scores)
     logger.info(f"### Score distribution ###")
     logger.info(f"Invalid examples: before local search: {n_invalid}, after: {len(data) - len(scores)}")
-    logger.info(f"Valid examples {len(scores)}")
-    logger.info(f"Mean score: {mean}")
-    logger.info(f"Median score: {median}")
-    logger.info(f"stdev score: {stdev}")
-    logger.info(f"Max score: {max_score}")
+    if len(scores) > 0:
+        mean = statistics.mean(scores)
+        median = statistics.median(scores)
+        stdev = statistics.stdev(scores)
+        max_score = max(scores)
+        logger.info(f"Valid examples {len(scores)}")
+        logger.info(f"Mean score: {mean}")
+        logger.info(f"Median score: {median}")
+        logger.info(f"stdev score: {stdev}")
+        logger.info(f"Max score: {max_score}")
     return
 
 def do_score(data):

@@ -287,10 +287,10 @@ class GroupClass(DataPoint):
     """
     NB_AP=20
     primes = [3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73]
-    def __init__(self,args):
+    def __init__(self,val, args):
       super().__init__(args)
       assert len(self.primes) >= self.NB_AP
-      if args.val >= 0:
+      if val >= 0:
          self.val = args.val
       else:
           self.val = np.random.randint(1, args.max_int)
@@ -315,30 +315,31 @@ class GroupClass(DataPoint):
     def encode(self,base:int=10, reverse=False) -> list[str]:
         return encode_threeranks(self,base,reverse)
 
-    def decode(self,lst, base=10, reverse=False)-> Optional["GroupClass"]:
-      """
-      Decode a list of tokens to return a datapoint with the corresponding discriminant. Note: only reads the determinant and do not return the ap
-      """
-      if len(lst) <= GroupClass.NB_AP + 1:
-          return None
-      lst = lst[GroupClass.NB_AP:]
-      val=0
-      if reverse:
-          try:
-              for d in lst[::-1]:
-                  v = int(d)
-                  if v<0 or v>=base:
-                      return None
-                  val = val*base + v
-          except:
-              return None
-      else:
-          try:
-              for d in lst:
-                  v = int(d)
-                  if v<0 or v>=base:
-                      return None
-                  val = val*base + v
-          except:
-              return None
-      return GroupClass(val)
+    def decode(self, lst, base=10, reverse=False)-> Optional["GroupClass"]:
+        """
+        Decode a list of tokens to return a datapoint with the corresponding discriminant. Note: only reads the determinant and do not return the ap
+        """
+        if len(lst) <= GroupClass.NB_AP + 1:
+            return None
+        lst = lst[GroupClass.NB_AP:]
+        val=0
+        if reverse:
+            try:
+                for d in lst[::-1]:
+                    v = int(d)
+                    if v<0 or v>=base:
+                        return None
+                    val = val*base + v
+            except:
+                return None
+        else:
+            try:
+                for d in lst:
+                    v = int(d)
+                    if v<0 or v>=base:
+                        return None
+                    val = val*base + v
+            except:
+                return None
+        self.val = val
+        return self

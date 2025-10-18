@@ -12,7 +12,7 @@ class SidonSetDataPoint(DataPoint):
     Candidate Sidon set. The candidate is a Sidon set if the number of collisions is zero.
     """
 
-    def __init__(self, params):
+    def __init__(self, val, params):
         super().__init__(params)
         self.N: int = int(params.N)
         self.M: int = int(params.M)
@@ -45,7 +45,7 @@ class SidonSetDataPoint(DataPoint):
         # Initialize candidate
         self.init_method = params.init_method or "random_greedy"
 
-        if isinstance(params.val,list):
+        if isinstance(val,list):
             self.val = sorted(set(int(x) for x in params.val if 0 <= int(x) <= self.N))
         else:
             if params.init_k > 0:

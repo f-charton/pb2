@@ -120,7 +120,7 @@ def generate_and_score(args, classname):
     """
     data = []
     for v in range(args.gensize):
-        d = classname(args)
+        d = classname(args.val,args)
         d.calc_features()
         d.calc_score()
         if d.score >= 0:
@@ -146,16 +146,17 @@ def encode(d,base=10, reverse=False) -> list[str]:
     return d.encode(base=base,reverse=reverse)
 
 
-def decode(lst, classname, base=10, reverse=False)-> Optional[Any]:
+def decode(lst, params, classname, base=10, reverse=False)-> Optional[Any]:
     """
     Decode a list of tokens to return a DataPoint classname with the corresponding discriminant. Note: only reads the determinant and do not return the ap
     """
-    return classname.decode(lst)
+    return classname(args.val,params).decode(lst,base=base,reverse=reverse)
 
-def detokenize(data, classname, base, reverse):
+def detokenize(data, params, classname, base, reverse):
     res = []
-    for d in data:
-        l = decode(d,classname, base,reverse)
+    for i,d in enumerate(data):
+        lst = d.split(',')
+        l = decode(lst=lst, params=params, classname=classname, base=base,reverse=reverse)
         if l is None:
             continue
         res.append(l)
@@ -278,7 +279,7 @@ if __name__ == '__main__':
         init_train_dataset = CharDataset(words = [],chars=symbols,max_word_length=args.max_output_length)
         new_words = generate_sample(model,init_train_dataset)
         # decode 
-        data = detokenize(new_words,classname, args.base,args.reverse)
+        data = detokenize(data=new_words, params=args, classname=classname, base=args.base,reverse=args.reverse)
         data = do_score(data)
     else:    
         # Initialize the data
@@ -314,7 +315,7 @@ if __name__ == '__main__':
         new_words = generate_sample(model, train_dataset)
 
         # decode 
-        new_data = detokenize(new_words,classname, args.base,args.reverse)
+        new_data = detokenize(data=new_words,params=args,classname=classname, base=args.base,reverse=args.reverse)
 
         new_data = do_score(new_data)
 
