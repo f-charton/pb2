@@ -1,3 +1,4 @@
+from concurrent.futures import ProcessPoolExecutor
 from slurm import init_signal_handler, init_distributed_mode
 from utils import bool_flag, initialize_exp
 from logging import getLogger
@@ -6,7 +7,8 @@ import time
 import random
 import statistics
 import torch
-from environment import do_score
+from environment import do_score, do_stats
+from itertools import repeat, chain
 
 import torch
 from typing import Any, List, Optional
@@ -26,7 +28,7 @@ def get_parser():
     parser.add_argument('--sample-only', type=int, default=500000, help="sample the specified number from the model in each loop")
     parser.add_argument('--gensize', type=int, default=1000000, help='Number of generate initial values')
     parser.add_argument('--max_int', type=int, default=1000000000000, help='maximum integer')
-    parser.add_argument('--pop_size', type=int, default=10000, help='New examples at each epoch')
+    parser.add_argument('--pop_size', type=int, default=100000, help='New examples at each epoch')
     parser.add_argument('--max_epochs', type=int, default=1000, help='Number of epochs')
     parser.add_argument('--ntest', type=int, default=5000, help='Size of test set')
     parser.add_argument('--base', type=int, default=10, help='Encoding base')
@@ -34,6 +36,7 @@ def get_parser():
     parser.add_argument('--max_len', type=int, default=500, help='Block size, maximumlength of sequences')
     parser.add_argument('--task', type=str, default="GroupClass", help='Math problem to be addressed')
     parser.add_argument('--input_file', type=str, default="", help='Optional input file with data')
+    parser.add_argument('--process_pool', type=bool_flag, default="true", help='use process_pool to generate and score initial data')
 
     #Generation arguments
 
@@ -62,16 +65,16 @@ def get_parser():
 
 
     # Makemore params
-    parser.add_argument('--num-workers', '-n', type=int, default=4, help="number of data workers for both train/test")
+    parser.add_argument('--num_workers', '-n', type=int, default=4, help="number of data workers for both train/test")
     parser.add_argument('--max-steps', type=int, default=20000, help="max number of optimization steps to run for, or -1 for infinite.")
     # parser.add_argument('--max_epochs', type=int, default= 30000, help='number of epochs')
     parser.add_argument('--seed', type=int, default=-1, help="seed")
     # sampling
     parser.add_argument('--top-k', type=int, default=-1, help="top-k for sampling, -1 means no top-k")
     # model
-    parser.add_argument('--n-layer', type=int, default=4, help="number of layers")
+    parser.add_argument('--n-layer', type=int, default=8, help="number of layers")
     parser.add_argument('--n-head', type=int, default=8, help="number of heads (in a transformer)")
-    parser.add_argument('--n-embd', type=int, default=64, help="number of feature channels in the model")
+    parser.add_argument('--n-embd', type=int, default=512, help="number of feature channels in the model")
     # optimization
     parser.add_argument('--batch-size', '-b', type=int, default=32, help="batch size during optimization")
     parser.add_argument('--learning-rate', '-l', type=float, default=5e-4, help="learning rate")
@@ -119,14 +122,43 @@ def generate_and_score(args, classname):
     Generation method if no data
     """
     data = []
-    for v in range(args.gensize):
-        d = classname(args.val,args)
-        d.calc_features()
-        d.calc_score()
-        if d.score >= 0:
-            data.append(d)
+    if args.process_pool:
+        BATCH = getattr(args, "gen_batch_size", 10000)
+        batch_counts = [BATCH] * (args.gensize // BATCH)
+        rem = args.gensize % BATCH
+        if rem:
+            batch_counts.append(rem)
+        with ProcessPoolExecutor(max_workers=min(20,args.num_workers)) as executor:
+            # map returns lists; stream them to avoid a giant materialization
+            for chunk in executor.map(_worker_batch,
+                                repeat(args, len(batch_counts)),
+                                repeat(classname, len(batch_counts)),
+                                repeat(_generate_and_score, len(batch_counts)),
+                                batch_counts):
+                if chunk:  # extend incrementally to manage memory
+                    data.extend(chunk)
+    else:
+        for _ in range(args.gensize):
+            d = _generate_and_score(args,classname)
+            if d is not None:
+                data.append(d)
     print("HERE some data",[el.val for el in data[:5]])
     return data
+
+def _generate_and_score(args,classname):
+    d = classname(args.val,args)
+    d.calc_features()
+    d.calc_score()
+    return d if d.score >=0 else None
+
+def _worker_batch(args, classname, method, n):
+    out = []
+    for _ in range(n):
+        d = method(args, classname)
+        if d is not None:
+            out.append(d)
+    return out
+
 
 def select_best(n, data):
     """
@@ -155,7 +187,7 @@ def decode(lst, params, classname, base=10, reverse=False)-> Optional[Any]:
 
 def detokenize(data, params, classname, base, reverse):
     res = []
-    for i,d in enumerate(data):
+    for _,d in enumerate(data):
         lst = d.split(',')
         l = decode(lst=lst, params=params, classname=classname, base=base,reverse=reverse)
         if l is None:
@@ -284,9 +316,12 @@ if __name__ == '__main__':
         data = do_score(data)
     else:    
         # Initialize the data
+        logger.info("No model recovered")
         if args.input_file != "":
+            logger.info(f"Data recovered, loading from {args.input_file}")
             data = load_data(args.input_file, classname=classname)
         else: 
+            logger.info("No data recovered, generating...")
             data = generate_and_score(args,classname=classname)
     args.gen_size = len(data)
     
@@ -295,6 +330,9 @@ if __name__ == '__main__':
     #Create datasets
     train_set, test_set = make_train_test(data, args.ntest)
     logger.info(f"Initial train and test generated. Size are train: {len(train_set)}, test {len(test_set)}")
+
+    #log initial stats
+    do_stats(-1,data=train_set)
 
     # Loop of PatternBoost
     n_epoch = 0
@@ -316,6 +354,7 @@ if __name__ == '__main__':
 
         new_words = generate_sample(model, train_dataset)
         logger.info(f"New words generated length is {len(new_words)}")
+
         # decode 
         new_data = detokenize(data=new_words,params=args,classname=classname, base=args.base,reverse=args.reverse)
         logger.info(f"New data detokenized length is {len(new_data)}")

@@ -105,7 +105,9 @@ class SidonSetDataPoint(DataPoint):
         return w
 
     def decode(self, lst, base=10, reverse=False):
-
+        """
+        Create a SidonSetDataPoint from a list
+        """
         sub_lists = []
         current = []
         for item in lst:
@@ -122,8 +124,8 @@ class SidonSetDataPoint(DataPoint):
         try:
             for sub_list in sub_lists:
                 num = 0
-                for i, digit_str in enumerate(reversed(sub_list)):
-                    num += int(digit_str) * (base ** i)
+                num_str = ''.join(sub_list)
+                num = int(num_str, base)
                 if num > self.N:
                     return None
                 result.append(num)
