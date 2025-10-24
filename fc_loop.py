@@ -60,7 +60,7 @@ def get_parser():
     parser.add_argument('--init_method', type=str, default="random_greedy", help='method of generation')
     parser.add_argument("--init_k", type=int, default=-1, help="by default size of the Sidon set that one tries to construct in the generation")
     parser.add_argument("--jitter_init", type=bool_flag, default="true", help="if generation is evenly spaced, should there be random displacements")
-    parser.add_argument('--sidon_steps', type=int, default=200000, help='number of steps in local search')
+    parser.add_argument('--sidon_steps', type=int, default=2000, help='number of steps in local search')
 
 
 
@@ -72,9 +72,9 @@ def get_parser():
     # sampling
     parser.add_argument('--top-k', type=int, default=-1, help="top-k for sampling, -1 means no top-k")
     # model
-    parser.add_argument('--n-layer', type=int, default=8, help="number of layers")
-    parser.add_argument('--n-head', type=int, default=8, help="number of heads (in a transformer)")
-    parser.add_argument('--n-embd', type=int, default=512, help="number of feature channels in the model")
+    parser.add_argument('--n-layer', type=int, default=4, help="number of layers")
+    parser.add_argument('--n-head', type=int, default=4, help="number of heads (in a transformer)")
+    parser.add_argument('--n-embd', type=int, default=64, help="number of feature channels in the model")
     # optimization
     parser.add_argument('--batch-size', '-b', type=int, default=32, help="batch size during optimization")
     parser.add_argument('--learning-rate', '-l', type=float, default=5e-4, help="learning rate")
@@ -313,7 +313,7 @@ if __name__ == '__main__':
         new_words = generate_sample(model,init_train_dataset)
         # decode 
         data = detokenize(data=new_words, params=args, classname=classname, base=args.base,reverse=args.reverse)
-        data = do_score(data)
+        data = do_score(data,process_pool=args.process_pool,num_workers=args.num_workers)
     else:    
         # Initialize the data
         logger.info("No model recovered")
@@ -323,6 +323,13 @@ if __name__ == '__main__':
         else: 
             logger.info("No data recovered, generating...")
             data = generate_and_score(args,classname=classname)
+            # # debug
+            # data_encoded = [encode(d,args.base,args.reverse) for d in data]
+            # debug_data = []
+            # for el in data_encoded:
+            #     debug_el = decode(el,params=args,classname=classname,base=args.base)
+            #     debug_data.append(debug_el)
+            # assert len(debug_data) == len(data_encoded)
     args.gen_size = len(data)
     
     data = select_best(args.pop_size, data)
@@ -359,7 +366,7 @@ if __name__ == '__main__':
         new_data = detokenize(data=new_words,params=args,classname=classname, base=args.base,reverse=args.reverse)
         logger.info(f"New data detokenized length is {len(new_data)}")
 
-        new_data = do_score(new_data)
+        new_data = do_score(new_data,process_pool=args.process_pool,num_workers=args.num_workers)
 
         #Possible to add another generation method here and mix it before taking the best
 

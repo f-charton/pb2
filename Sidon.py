@@ -7,6 +7,18 @@ import math
 import bisect
 
 
+# Sidon utils
+
+def _parse_baseN(digits, base, limit=None):
+    acc = 0
+    for v in digits:
+        if v < 0 or v >= base:
+            raise ValueError(f"Digit {v} out of range for base {base}")
+        acc = acc * base + v
+    return acc
+
+
+
 class SidonSetDataPoint(DataPoint):
     """
     Candidate Sidon set. The candidate is a Sidon set if the number of collisions is zero.
@@ -66,10 +78,9 @@ class SidonSetDataPoint(DataPoint):
 
         # Using the fact that a set is Sidon is all the positive differences between to elements a-x are distincts. We keep in memory the differences
         self.diffs_count = [0] * (self.N + 1)
-        self._build_diffs()
         # Initial score/features
         self.calc_score()
-        self.features = self.calc_features()
+        self.calc_features()
 
 
 
@@ -123,15 +134,27 @@ class SidonSetDataPoint(DataPoint):
         result = []
         try:
             for sub_list in sub_lists:
-                num = 0
-                num_str = ''.join(sub_list)
-                num = int(num_str, base)
+                if base <= 36:
+                    #36 is the maximum supported by int
+                    num_str = ''.join(sub_list)
+                    num = int(num_str, base)
+                else:
+                    num = 0
+                    for el in sub_list:
+                        v =int(el)
+                        if v < 0 or v >= base:
+                            raise ValueError(f"Digit {v} out of range for base {base}")
+                        num = num * base + v
                 if num > self.N:
-                    return None
+                    return None #with this option, as soon as the model outputs a number above self.N we discard the full sequence
+                    # continue #at least for debug this option is a bit softer and allows it to only remove the element that shouldn't be there,
                 result.append(num)
         except ValueError as e:
+            print(f"Value error in the generation {e}")
             return None
         self.val = sorted(result)
+        self.calc_features()
+        self.calc_score()
         return self
 
     def local_search(self) -> None:
@@ -141,9 +164,20 @@ class SidonSetDataPoint(DataPoint):
           - shift: pick an index i and try a_{i} -> a_{i} \pm 1
           - insert: propose x in [0,N]\val at a low-conflict position
           - delete: remove the mark that yields the worst sum-collision burden
+          NOTE: currently the local search is mainly called to fix elements that have a problem, as a consequence it could be done differently:
+          - deleting the elements that provide collisions
+          - starting a random greedy from the set provided
         """
         #TODO could probably be improved using a better known search. This could also be included as an alternative generation method during the loop.
-        for _ in range(self.steps):
+        step_left = self.steps
+        while self.score <0 and self.hard and step_left > 0:
+            self._move_delete()
+            step_left -= 1
+        if self.score < 0:
+            raise RuntimeError("score negative even after local_search, should not be possible")
+
+
+        for _ in range(step_left):
             r = random.random()
             if r < self.shift_prob:
                 self._move_shift()
@@ -254,20 +288,10 @@ class SidonSetDataPoint(DataPoint):
 
     def _count_collisions(self) -> int:
         """
-        Count collisions in the set without multiplicities.
+        Count collisions in the set with multiplicities.
         """
-        seen = [0] * (self.N + 1)
-        collisions = 0
-        v = self.val
-        for i, a in enumerate(v):
-            for j in range(i+1, len(v)):
-                d = abs(v[j] - a)
-                if seen[d] >= 1:
-                    # print("one collision")
-                    # print(self.val)
-                    collisions += 1
-                seen[d] += 1
-        return collisions
+        self._build_diffs()
+        return self._current_collisions()
 
     def _current_collisions(self) -> int:
         """
@@ -440,7 +464,7 @@ class SidonSetDataPoint(DataPoint):
             _ = self._shift_element(old_x=x, new_x=new_x)
             feasible = (self._current_collisions() == 0)
             if feasible:
-                # keep; recompute score exactly
+                # keep; score does not change
                 self.score = len(self.val)
             else:
                 # revert
@@ -503,6 +527,31 @@ class SidonSetDataPoint(DataPoint):
         else:
             self.score += delta_score
 
+
+    def _predicted_collision_drop(self, idx: int) -> int:
+        """
+        Predict the number of collisions removed if we remove the idx-th element
+        """
+        x = self.val[idx]
+        used = {}
+        drop = 0
+
+        for a in self.val[:idx]:
+            d = x - a
+            c = self.diffs_count[d] - used.get(d, 0) #this to make sure we don't count twice a collision with a middle point e.g. 1,4,7
+            if c >= 2:
+                drop += 1
+                used[d] = used.get(d, 0) + 1
+
+        for b in self.val[idx+1:]:
+            d = b - x
+            c = self.diffs_count[d] - used.get(d, 0)
+            if c >= 2:
+                drop += 1
+                used[d] = used.get(d, 0) + 1
+
+        return drop
+
     def _move_delete(self) -> None:
         """
         Third move of the local search: delete an element.
@@ -511,33 +560,46 @@ class SidonSetDataPoint(DataPoint):
         if not self.val:
             return
         # Choose the mark whose removal most reduces collisions.
-        # Score removal by the number of pair-sums involving it that currently collide.
+        # Score removal by the number of differences involving it that currently collide.
         best_idx = None
         best_gain = None
         v = self.val
-        for idx, x in enumerate(v):
-            gain = 0
-            for a in v[:idx]:
-                if self.diffs_count[x - a] >= 2:
-                    gain += 1
-            for b in v[idx+1:]:
-                if self.diffs_count[b - x] >= 2:
-                    gain += 1
+
+        if self.hard and self.score >0:
+            #Change here to have simulated annealing
+            return
+
+
+        for idx, _ in enumerate(v):
+            gain = self._predicted_collision_drop(idx)
             if (best_gain is None) or (gain > best_gain):
                 best_gain, best_idx = gain, idx
 
+        gain = best_gain
+        if gain == 0: # if no collisions then select an element at random
+            best_idx = random.randrange(len(v))
         x = self.val[best_idx]
 
+        old_collisions = self._current_collisions()
+
         if self.hard:
-            # if currently infeasible, allow deletion; else avoid
-            if self._current_collisions() > 0:
-                self._remove_element(x)
+            # if currently invalid, allow deletion; else avoid deleting
+            assert old_collisions > 0
+            self._remove_element(x)
+            if old_collisions > gain:
+                # if, after removing we still expect some collisions
+                collisions = self._count_collisions()
+                assert collisions > 0, collisions
+                self.score = -1
+            else:
+                # if, after removing we expect no collisions
+                collisions = self._count_collisions() #debug only
+                assert collisions == 0, collisions #debug only
                 self.score = len(self.val)
             return
 
         old_collisions = self._current_collisions()
         delta_coll = self._remove_element(x)
-        new_collisions = old_collisions + delta_coll
         delta_score = self.M * (-1) - delta_coll
         accept = (delta_score >= 0) or self._anneal_accept(delta_score)
         if not accept:
@@ -545,8 +607,6 @@ class SidonSetDataPoint(DataPoint):
             self._add_element(x)
         else:
             self.score += delta_score
-
-
 
 # On pourrait générer des éléments, puis passer à une destructions d'élements jusqu'à ce qu'il n'y ait plus de collision et garder ce qui reste puis filtrer.
 # Alternativement on pourrait générer depuis une meilleure seed, mais on risque de sur-spécialiser le modèle.

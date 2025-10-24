@@ -51,7 +51,7 @@ def _do_score(d):
     d.calc_score()
     if d.score < 0:
         invalid = 1
-        d.local_search()
+    d.local_search() #moved for debug
     return (d,invalid)
 
 def do_score(data, process_pool: bool = False, num_workers :int = 20):
@@ -68,7 +68,8 @@ def do_score(data, process_pool: bool = False, num_workers :int = 20):
             d.calc_score()
             if d.score < 0:
                 n_invalid += 1
-                d.local_search()
+            #for debug
+            d.local_search()
         processed_data = data
     else:
         chunksize = max(1, len(data) // (num_workers * 32))
