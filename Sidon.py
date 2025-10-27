@@ -1,11 +1,14 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
+from logging import getLogger
 from typing import Dict, List, Tuple, Optional
 from environment import DataPoint
 import random
+from collections import Counter
 import math
 import bisect
 
+logger = getLogger()
 
 # Sidon utils
 
@@ -92,6 +95,7 @@ class SidonSetDataPoint(DataPoint):
         collisions = self._count_collisions()
         if self.hard and collisions > 0:
             self.score = -1
+            assert len(self.val) > 0
             return
         #TODO Currently the soft score penalizes the collision, but it is not exactly a Sidon set so one could create "invalid" instead by returning -1 if collisions > 0
         self.score = self.M * len(self.val) - collisions
@@ -146,8 +150,8 @@ class SidonSetDataPoint(DataPoint):
                             raise ValueError(f"Digit {v} out of range for base {base}")
                         num = num * base + v
                 if num > self.N:
-                    return None #with this option, as soon as the model outputs a number above self.N we discard the full sequence
-                    # continue #at least for debug this option is a bit softer and allows it to only remove the element that shouldn't be there,
+                    # return None #with this option, as soon as the model outputs a number above self.N we discard the full sequence
+                    continue #at least for debug this option is a bit softer and allows it to only remove the element that shouldn't be there,
                 result.append(num)
         except ValueError as e:
             print(f"Value error in the generation {e}")
@@ -170,27 +174,60 @@ class SidonSetDataPoint(DataPoint):
         """
         #TODO could probably be improved using a better known search. This could also be included as an alternative generation method during the loop.
         step_left = self.steps
+        # print(f"HERE in local search {self.val} and score {self.score}")
         while self.score <0 and self.hard and step_left > 0:
             self._move_delete()
+            # print(f"HERE after move delete {self.val} and score {self.score}")
             step_left -= 1
         if self.score < 0:
             raise RuntimeError("score negative even after local_search, should not be possible")
+        if len(self.val) == 0:
+            logger.info(f"Error no val with {self._build_diffs()}")
 
+        # old_score = self.score # debug
+        # print("HERE OLD", old_score)
+        # self.calc_score()
+        # new_score = self.score
+        # assert old_score == new_score, new_score
 
         for _ in range(step_left):
             r = random.random()
             if r < self.shift_prob:
                 self._move_shift()
+                # score1 = self.score
+                # print("shift",self.score)
+                # # debug
+                # self.calc_score()
+                # score2 = self.score
+                # assert score2 == score1
+                # print("score2",self.score)
+
             elif r < self.shift_prob + self.insert_prob:
                 self._move_insert()
+                # score1 = self.score
+                # print("insert",self.score)
+                # # debug
+                # self.calc_score()
+                # score2 = self.score
+                # assert score2 == score1
+                # print("score2",self.score)
+
             else:
                 self._move_delete()
+                # score1 = self.score
+                # print("delete",self.score)
+                # # debug
+                # self.calc_score()
+                # score2 = self.score
+                # assert score2 == score1
+                # print("score2",self.score)
+
             self.temp *= self.temp_decay
 
-        # finalize score/features from scratch (safety)
+        # finalize score/features from scratch
         self.calc_score()
         self.calc_features()
-
+        # print("HERE NEW", self.score)
     # -----------------------
     # Methods specific to the problem
     # -----------------------
@@ -446,7 +483,9 @@ class SidonSetDataPoint(DataPoint):
         Optionally: can accept the modification even if it decreases the score using simulated annealing to avoid being stuck in local minima.
         """
         if not self.val:
-            raise RuntimeWarning("Impossible to apply move_shift, no val")
+            logger.info("Error, impossible to apply move_shift no val")
+            logger.info(f"val is {self.val} with length {len(self.val)}")
+            # raise RuntimeWarning("Impossible to apply move_shift, no val")
         i = random.randrange(len(self.val))
         x = self.val[i]
         direction = random.choice([-1, 1])
@@ -482,28 +521,21 @@ class SidonSetDataPoint(DataPoint):
 
     def _move_insert(self) -> None:
         """
-        Second possibility of move for the local phase: insert an x in the subset
+        Second possibility of move for the local phase: insert an x in the subset.
+        In hard mode, we only allow insertions that keep the set collision-free.
         """
-        # pick a candidate location; bias toward low-collision sums
-        if len(self.val) >= self.N + 1:
-            return
-        # Try a few samples and pick the best
-        trials = min(8, self.N + 1 - len(self.val))
+        v = self.val
+
+        trials = min(8, self.N + 1 - len(v)) # how many candidate xs we sample
         best_x = None
         best_delta = None
         for _ in range(trials):
             x = random.randrange(self.N + 1)
-            if x in self.val:
+            if x in v:
                 continue
-            v = self.val
-            pos = bisect.bisect_left(v, x)
-            delta = 0
-            for a in v[:pos]:
-                if self.diffs_count[x - a] >= 1:
-                    delta += 1
-            for b in v[pos:]:
-                if self.diffs_count[b - x] >= 1:
-                    delta += 1
+
+            delta = self._predicted_collision_increase_if_insert_x(x)
+
             if (best_delta is None) or (delta < best_delta):
                 best_delta = delta
                 best_x = x
@@ -511,13 +543,14 @@ class SidonSetDataPoint(DataPoint):
             return
 
         if self.hard:
-            # only insert if it creates no collisions
+            # only insert if it creates no NEW collisions
             if best_delta == 0:
                 self._add_element(best_x)
+                # after insertion, still collision-free: score is size
                 self.score = len(self.val)
             return
 
-        # soft mode: evaluate acceptance
+        # soft mode (simulated annealing / hill-climb with penalties)
         delta_coll = self._add_element(best_x)
         delta_score = self.M * 1 - delta_coll
         accept = (delta_score >= 0) or self._anneal_accept(delta_score)
@@ -527,6 +560,32 @@ class SidonSetDataPoint(DataPoint):
         else:
             self.score += delta_score
 
+    def _predicted_collision_increase_if_insert_x(self, x: int) -> int:
+        """
+        Exact predicted INCREASE in total collisions if we insert x into self.val.
+        Collisions are Σ_d max(0, diffs_count[d] - 1).
+        """
+        v = self.val
+        pos = bisect.bisect_left(v, x)
+
+        # Count how many new pairs (x, ·) produce each difference d
+        k = Counter()
+
+        # pairs (x - a) for a < x
+        for a in v[:pos]:
+            k[x - a] += 1
+        # pairs (b - x) for b > x
+        for b in v[pos:]:
+            k[b - x] += 1
+
+        increase = 0
+        for d, kx in k.items():
+            c = self.diffs_count[d]
+            before = max(0, c - 1)
+            after = max(0, c + kx - 1)
+            increase += (after - before)
+
+        return increase
 
     def _predicted_collision_drop(self, idx: int) -> int:
         """
@@ -565,8 +624,8 @@ class SidonSetDataPoint(DataPoint):
         best_gain = None
         v = self.val
 
-        if self.hard and self.score >0:
-            #Change here to have simulated annealing
+        if self.hard and self.score > 0:
+            #Change here to have simulated annealing but keep at least 2 elements.
             return
 
 
@@ -581,21 +640,28 @@ class SidonSetDataPoint(DataPoint):
         x = self.val[best_idx]
 
         old_collisions = self._current_collisions()
-
+        # logger.info(f"Delete move old collisions are {old_collisions}")
         if self.hard:
             # if currently invalid, allow deletion; else avoid deleting
             assert old_collisions > 0
+            if len(self.val) <= 1:
+                logger.info(f"Error in deleted: should not be any collisions {self.val}")
             self._remove_element(x)
             if old_collisions > gain:
                 # if, after removing we still expect some collisions
                 collisions = self._count_collisions()
+                # logger.info(f"Delete move done, new collisions are {collisions}")
                 assert collisions > 0, collisions
                 self.score = -1
             else:
                 # if, after removing we expect no collisions
                 collisions = self._count_collisions() #debug only
+                # logger.info(f"Delete move done and should not be any anymore, new collisions are {collisions}")
                 assert collisions == 0, collisions #debug only
                 self.score = len(self.val)
+                # debug_score = self.score
+                # self.calc_score()
+                # assert self.score == debug_score
             return
 
         old_collisions = self._current_collisions()

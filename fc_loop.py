@@ -25,7 +25,7 @@ logger = getLogger()
 def get_parser():
     parser = argparse.ArgumentParser('A simple PatternBoost loop for different maths problems')
     
-    parser.add_argument('--sample-only', type=int, default=500000, help="sample the specified number from the model in each loop")
+    parser.add_argument('--sample_only', type=int, default=500000, help="sample the specified number from the model in each loop")
     parser.add_argument('--gensize', type=int, default=1000000, help='Number of generate initial values')
     parser.add_argument('--max_int', type=int, default=1000000000000, help='maximum integer')
     parser.add_argument('--pop_size', type=int, default=100000, help='New examples at each epoch')
@@ -37,6 +37,7 @@ def get_parser():
     parser.add_argument('--task', type=str, default="GroupClass", help='Math problem to be addressed')
     parser.add_argument('--input_file', type=str, default="", help='Optional input file with data')
     parser.add_argument('--process_pool', type=bool_flag, default="true", help='use process_pool to generate and score initial data')
+    parser.add_argument('--always_search', type=bool_flag, default="true", help='if True, use local search for all examples generated (if False, only for invalid examples)')
 
     #Generation arguments
 
@@ -292,7 +293,8 @@ if __name__ == '__main__':
 
     # system inits
     torch.manual_seed(args.seed)
-    torch.cuda.manual_seed_all(args.seed)
+    if args.device == "cuda":
+        torch.cuda.manual_seed_all(args.seed)
     # os.makedirs(args.work_dir, exist_ok=True)
     symbols = [str(i) for i in range(max(args.base,3))]
     symbols.extend(args.symbols.split(","))
@@ -308,12 +310,21 @@ if __name__ == '__main__':
     model_path = os.path.join(args.dump_path, "model.pt")
     if os.path.isfile(model_path): 
         logger.info("resuming from existing model")
-        model.load_state_dict(torch.load(model_path))
+
+        if args.device == "cuda":
+            reloaded = torch.load(model_path)
+        else:
+            reloaded = torch.load(model_path, map_location=torch.device('cpu'))
+        if isinstance(reloaded, dict) and "state_dict" in reloaded:
+            model.load_state_dict(reloaded["state_dict"])
+        else:
+            model.load_state_dict(reloaded)
+
         init_train_dataset = CharDataset(words = [],chars=symbols,max_word_length=args.max_output_length)
         new_words = generate_sample(model,init_train_dataset)
         # decode 
         data = detokenize(data=new_words, params=args, classname=classname, base=args.base,reverse=args.reverse)
-        data = do_score(data,process_pool=args.process_pool,num_workers=args.num_workers)
+        data = do_score(data,process_pool=args.process_pool,num_workers=args.num_workers,always_search=args.always_search)
     else:    
         # Initialize the data
         logger.info("No model recovered")
@@ -366,7 +377,7 @@ if __name__ == '__main__':
         new_data = detokenize(data=new_words,params=args,classname=classname, base=args.base,reverse=args.reverse)
         logger.info(f"New data detokenized length is {len(new_data)}")
 
-        new_data = do_score(new_data,process_pool=args.process_pool,num_workers=args.num_workers)
+        new_data = do_score(new_data,process_pool=args.process_pool,num_workers=args.num_workers,always_search=args.always_search)
 
         #Possible to add another generation method here and mix it before taking the best
 

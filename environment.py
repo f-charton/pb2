@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor
+from itertools import repeat
 from logging import getLogger
 import statistics
 
@@ -45,16 +46,20 @@ def do_stats(n_invalid, data):
         logger.info(f"Max score: {max_score}")
     return
 
-def _do_score(d):
+def _do_score(d, always_search:bool = False):
     invalid = 0
     d.calc_features()
     d.calc_score()
     if d.score < 0:
         invalid = 1
-    d.local_search() #moved for debug
+        d.local_search()
+        # print(d.score)
+        assert d.score >= 0
+    elif always_search:
+        d.local_search()
     return (d,invalid)
 
-def do_score(data, process_pool: bool = False, num_workers :int = 20):
+def do_score(data, process_pool: bool = False, num_workers :int = 20, always_search:bool = False):
     """
     Compute the score of a list of data.
     Can be parallelized with process_pool.
@@ -68,15 +73,17 @@ def do_score(data, process_pool: bool = False, num_workers :int = 20):
             d.calc_score()
             if d.score < 0:
                 n_invalid += 1
-            #for debug
-            d.local_search()
+                d.local_search()
+            elif always_search:
+                d.local_search()
         processed_data = data
     else:
         chunksize = max(1, len(data) // (num_workers * 32))
         processed_data = []
         n_invalid = 0
         with ProcessPoolExecutor(max_workers=num_workers) as ex:
-            for d, invalid in ex.map(_do_score, data, chunksize=chunksize):
+            for d, invalid in ex.map(_do_score, data, repeat(always_search), chunksize=chunksize):
+                assert d.score >= 0 # debug
                 processed_data.append(d)
                 n_invalid += invalid
 
