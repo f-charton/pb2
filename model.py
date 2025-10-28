@@ -71,25 +71,28 @@ class CausalSelfAttention(nn.Module):
         self.n_head = config.n_head
         self.n_embd = config.n_embd
 
-    def forward(self, x):
+    def forward(self, x, past_kv=None):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
-        q, k ,v  = self.c_attn(x).split(self.n_embd, dim=2)
+        q, k, v = self.c_attn(x).split(self.n_embd, dim=2)
         k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
 
-        # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
-        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-        att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
-        att = F.softmax(att, dim=-1)
-        y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+        if past_kv is not None:
+            past_k, past_v = past_kv
+            k = torch.cat((past_k, k), dim=2)
+            v = torch.cat((past_v, v), dim=2)
+
+        present_kv = (k, v)
+
+        y = F.scaled_dot_product_attention(q, k, v, attn_mask=None, is_causal=True)
         y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
 
         # output projection
         y = self.c_proj(y)
-        return y
+        return y, present_kv
 
 class Block(nn.Module):
     """ an unassuming Transformer block """
@@ -107,10 +110,11 @@ class Block(nn.Module):
         m = self.mlp
         self.mlpf = lambda x: m.c_proj(m.act(m.c_fc(x))) # MLP forward
 
-    def forward(self, x):
-        x = x + self.attn(self.ln_1(x))
+    def forward(self, x, past_kv=None):
+        attn_out, present_kv = self.attn(self.ln_1(x), past_kv=past_kv)
+        x = x + attn_out
         x = x + self.mlpf(self.ln_2(x))
-        return x
+        return x, present_kv
 
 class Transformer(nn.Module):
     """ Transformer Language Model, exactly as seen in GPT-2 """
@@ -134,18 +138,29 @@ class Transformer(nn.Module):
     def get_block_size(self):
         return self.block_size
 
-    def forward(self, idx, targets=None):
+    def forward(self, idx, targets=None, past_kv=None):
         device = idx.device
         b, t = idx.size()
         assert t <= self.block_size, f"Cannot forward sequence of length {t}, block size is only {self.block_size}"
-        pos = torch.arange(0, t, dtype=torch.long, device=device).unsqueeze(0) # shape (1, t)
+
+        # figure out positional offset if we're continuing generation
+        past_len = 0
+        if past_kv is not None and len(past_kv) > 0 and past_kv[0] is not None:
+            past_len = past_kv[0][0].size(2)
+
+        pos = torch.arange(past_len, past_len + t, dtype=torch.long, device=device).unsqueeze(0) # shape (1, t)
 
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (1, t, n_embd)
         x = tok_emb + pos_emb
-        for block in self.transformer.h:
-            x = block(x)
+
+        presents_kv = []
+        for i, block in enumerate(self.transformer.h):
+            pkv = None if past_kv is None else past_kv[i]
+            x, present_kv = block(x, past_kv=pkv)
+            presents_kv.append(present_kv)
+
         x = self.transformer.ln_f(x)
         logits = self.lm_head(x)
 
@@ -154,7 +169,7 @@ class Transformer(nn.Module):
         if targets is not None:
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
 
-        return logits, loss
+        return logits, loss, presents_kv
 
 # -----------------------------------------------------------------------------
 # helper functions for evaluating and sampling from the model
@@ -166,18 +181,33 @@ def generate(model, idx, max_new_tokens, temperature=1.0, do_sample=False, top_k
     the sequence max_new_tokens times, feeding the predictions back into the model each time.
     Most likely you'll want to make sure to be in model.eval() mode of operation for this.
     """
+    model.eval()
     block_size = model.get_block_size()
-    for _ in range(max_new_tokens):
+    B = idx.size(0)
+
+    past_kv = None
+
+    for i in range(max_new_tokens):
+        if i == 0 or past_kv is None:
+            idx_cond = idx
+        else:
+            idx_cond = idx[:, -1].unsqueeze(1)
         # if the sequence context is growing too long we must crop it at block_size
-        idx_cond = idx if idx.size(1) <= block_size else idx[:, -block_size:]
+        idx_cond = idx_cond if idx_cond.size(1) <= block_size else idx_cond[:, -block_size:]
         # forward the model to get the logits for the index in the sequence
-        logits, _ = model(idx_cond)
+        logits, _, presents = model(idx_cond, past_kv=past_kv)
+        past_kv = presents
+        for n_layer in range(len(past_kv)):
+            k_l, v_l = past_kv[n_layer]
+            if k_l.size(2) > block_size:
+                past_kv[n_layer] = (k_l[:, :, -block_size:, :], v_l[:, :, -block_size:, :])
+
         # pluck the logits at the final step and scale by desired temperature
         logits = logits[:, -1, :] / temperature
         # optionally crop the logits to only the top k options
         if top_k is not None:
             v, _ = torch.topk(logits, top_k)
-            logits[logits < v[:, [-1]]] = -float('Inf')
+            logits[logits < v[:, [-1]]] = -float('inf')
         # apply softmax to convert logits to (normalized) probabilities
         probs = F.softmax(logits, dim=-1)
         # either sample from the distribution or take the most likely element
@@ -252,7 +282,7 @@ def evaluate(model, dataset, device, batch_size=50, max_batches=None):
     for i, batch in enumerate(loader):
         batch = [t.to(device) for t in batch]
         X, Y = batch
-        logits, loss = model(X, Y)
+        logits, loss, _ = model(X, Y)
         losses.append(loss.item())
         if max_batches is not None and i >= max_batches:
             break
@@ -260,7 +290,7 @@ def evaluate(model, dataset, device, batch_size=50, max_batches=None):
     model.train() # reset model back to training mode
     return mean_loss
 
-def logprobs(model,dataset):
+def logprobs(args,model,dataset):
     """Return the log of the probability that the model will generate a given sequence.
     
     Note: What we actually calculate is the probability given a sequence (A,B,..,X) that the
@@ -269,7 +299,7 @@ def logprobs(model,dataset):
     """
 
     encoded_words = torch.stack(tuple([dataset[i][0] for i in range(len(dataset))])).to(args.device)
-    logits, _ = model(encoded_words)
+    logits, _, _ = model(encoded_words)
     logits = logits.to('cpu')
     probs = F.softmax(logits, dim=-1).detach().numpy() # a tensor of shape (len(dataset), block_size, #tokens+1)
 

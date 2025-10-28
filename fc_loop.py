@@ -218,7 +218,7 @@ def train(model, loader, optim, test_dataset):
         batch = [t.to(args.device) for t in batch]
         X, Y = batch
 
-        logits, loss = model(X, Y)
+        logits, loss, _ = model(X, Y)
         # calculate the gradient, update the weights
         model.zero_grad(set_to_none=True)
         loss.backward()
@@ -244,13 +244,18 @@ def train(model, loader, optim, test_dataset):
                 logger.info(f"test loss {test_loss} is the best so far, saving model to {out_path}")
                 torch.save(model.state_dict(), out_path)
                 best_loss = test_loss
+            curr_loss = 0
 #            print_samples(num=10)
                 
         step += 1
         # termination conditions
         if args.max_steps >= 0 and step >= args.max_steps:
             break
-    logger.info(f"Memory allocated:  {torch.cuda.memory_allocated(0)/(1024*1024):.2f}MB, reserved: {torch.cuda.memory_reserved(0)/(1024*1024):.2f}MB")
+    
+    if args.device == "cuda":
+        logger.info(f"Memory allocated:  {torch.cuda.memory_allocated(0)/(1024*1024):.2f}MB, reserved: {torch.cuda.memory_reserved(0)/(1024*1024):.2f}MB")
+    elif args.device == "mps":
+        logger.info(f"Memory allocated:  {torch.mps.current_allocated_memory()/(1024*1024):.2f}MB, reserved: {torch.mps.driver_allocated_memory()/(1024*1024):.2f}MB")
 
 def generate_sample(model, train_dataset):
     new_words = []
@@ -279,6 +284,13 @@ def generate_sample(model, train_dataset):
 if __name__ == '__main__':
     parser = get_parser()
     args = parser.parse_args()
+
+    args.device = "cpu" if args.cpu else ("mps" if torch.backends.mps.is_available() else "cuda")
+    if args.device == "cuda":
+        torch.cuda.manual_seed_all(args.seed)
+    if args.device == "mps":
+        torch.mps.manual_seed(args.seed)
+
     init_distributed_mode(args)
     logger = initialize_exp(args)
     if not os.path.exists(args.dump_path):
@@ -286,15 +298,12 @@ if __name__ == '__main__':
     if args.is_slurm_job:
         init_signal_handler()
     
-    args.device = "cpu" if args.cpu else "cuda"
     if args.seed < 0:
         args.seed = np.random.randint(1_000_000_000)
     logger.info(f"seed: {args.seed}")
 
     # system inits
     torch.manual_seed(args.seed)
-    if args.device == "cuda":
-        torch.cuda.manual_seed_all(args.seed)
     # os.makedirs(args.work_dir, exist_ok=True)
     symbols = [str(i) for i in range(max(args.base,3))]
     symbols.extend(args.symbols.split(","))
@@ -313,6 +322,8 @@ if __name__ == '__main__':
 
         if args.device == "cuda":
             reloaded = torch.load(model_path)
+        elif args.device == "mps":
+            reloaded = torch.load(model_path, map_location=torch.device('mps'))
         else:
             reloaded = torch.load(model_path, map_location=torch.device('cpu'))
         if isinstance(reloaded, dict) and "state_dict" in reloaded:
@@ -364,7 +375,10 @@ if __name__ == '__main__':
         train_dataset = CharDataset(train_words, symbols, args.max_output_length)
         test_dataset = CharDataset(test_words, symbols, args.max_output_length)
 
-        logger.info(f"Memory allocated:  {torch.cuda.memory_allocated(0)/(1024*1024):.2f}MB, reserved: {torch.cuda.memory_reserved(0)/(1024*1024):.2f}MB")
+        if args.device == "cuda":
+            logger.info(f"Memory allocated:  {torch.cuda.memory_allocated(0)/(1024*1024):.2f}MB, reserved: {torch.cuda.memory_reserved(0)/(1024*1024):.2f}MB")
+        elif args.device == "mps":
+            logger.info(f"Memory allocated:  {torch.mps.current_allocated_memory()/(1024*1024):.2f}MB, reserved: {torch.mps.driver_allocated_memory()/(1024*1024):.2f}MB")
         optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay, betas=(0.9, 0.99), eps=1e-8)
         batch_loader = InfiniteDataLoader(train_dataset, batch_size=args.batch_size, pin_memory=True, num_workers=args.num_workers)
 
