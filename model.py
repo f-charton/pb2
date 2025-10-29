@@ -87,7 +87,12 @@ class CausalSelfAttention(nn.Module):
 
         present_kv = (k, v)
 
-        y = F.scaled_dot_product_attention(q, k, v, attn_mask=None, is_causal=True)
+        if past_kv is None:
+            y = F.scaled_dot_product_attention(q, k, v, attn_mask=None, is_causal=True)
+        else:
+            causal_mask = (1.0 - self.bias[:, :, k.size(-2) - q.size(-2) : k.size(-2), :k.size(-2)]).to(q.device)
+            causal_mask = causal_mask * torch.finfo(q.dtype).min
+            y = F.scaled_dot_product_attention(q, k, v, attn_mask=causal_mask, is_causal=False)
         y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
 
         # output projection
