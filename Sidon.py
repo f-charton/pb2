@@ -61,7 +61,7 @@ class SidonSetDataPoint(DataPoint):
         self.init_method = params.init_method or "random_greedy"
 
         if isinstance(val,list):
-            self.val = sorted(set(int(x) for x in params.val if 0 <= int(x) <= self.N))
+            self.val = sorted(set(int(x) for x in val if 0 <= int(x) <= self.N))
         else:
             if params.init_k > 0:
                 target_k = int(params.init_k)

@@ -15,6 +15,7 @@ from typing import Any, List, Optional
 
 from threerank import GroupClass
 from Sidon  import SidonSetDataPoint
+from triangle import TriangleDataPoint
 from model import CharDataset, Transformer, InfiniteDataLoader, evaluate, generate
 import os
 import argparse
@@ -63,7 +64,10 @@ def get_parser():
     parser.add_argument("--jitter_init", type=bool_flag, default="true", help="if generation is evenly spaced, should there be random displacements")
     parser.add_argument('--sidon_steps', type=int, default=2000, help='number of steps in local search')
 
-
+    #TriangleFree
+    parser.add_argument('--triangle_N', type=int, default=30, help='Number of vertices in the triangle-free graph')
+    parser.add_argument('--triangle_hard', type=bool_flag, default="false", help='whether only triang-free graphs are accepted')
+    parser.add_argument('--triangle_init_method', type=str, default="edge_removal", help='method of generation')
 
     # Makemore params
     parser.add_argument('--num_workers', '-n', type=int, default=4, help="number of data workers for both train/test")
@@ -108,7 +112,7 @@ def get_parser():
 
     return parser
 
-train_classes = {"GroupClass":GroupClass, "Sidon":SidonSetDataPoint}
+train_classes = {"GroupClass":GroupClass, "Sidon":SidonSetDataPoint, "Triangle":TriangleDataPoint}
 
 def load_data(infile, classname):
     data = []
@@ -302,6 +306,10 @@ if __name__ == '__main__':
         args.seed = np.random.randint(1_000_000_000)
     logger.info(f"seed: {args.seed}")
 
+    classname = train_classes[args.task]
+    if classname == TriangleDataPoint and args.base == -1:
+        args.base = args.triangle_N * (args.triangle_N - 1) // 2
+
     # system inits
     torch.manual_seed(args.seed)
     # os.makedirs(args.work_dir, exist_ok=True)
@@ -311,7 +319,6 @@ if __name__ == '__main__':
     args.block_size = args.max_len
 
     #Initialize class to be adressed
-    classname = train_classes[args.task]
 
     #Initialize transformer
     model = Transformer(args)
