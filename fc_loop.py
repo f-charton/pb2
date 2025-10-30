@@ -16,6 +16,7 @@ from typing import Any, List, Optional
 from threerank import GroupClass
 from Sidon  import SidonSetDataPoint
 from triangle import TriangleDataPoint
+from square import SquareDataPoint
 from model import CharDataset, Transformer, InfiniteDataLoader, evaluate, generate
 import os
 import argparse
@@ -69,6 +70,11 @@ def get_parser():
     parser.add_argument('--triangle_hard', type=bool_flag, default="false", help='whether only triang-free graphs are accepted')
     parser.add_argument('--triangle_init_method', type=str, default="edge_removal", help='method of generation')
 
+    #SquareFree
+    parser.add_argument('--square_N', type=int, default=30, help='Number of vertices in the square-free graph')
+    parser.add_argument('--square_hard', type=bool_flag, default="false", help='whether only square-free graphs are accepted')
+    parser.add_argument('--square_init_method', type=str, default="edge_removal", help='method of generation')
+
     # Makemore params
     parser.add_argument('--num_workers', '-n', type=int, default=4, help="number of data workers for both train/test")
     parser.add_argument('--max-steps', type=int, default=20000, help="max number of optimization steps to run for, or -1 for infinite.")
@@ -112,7 +118,7 @@ def get_parser():
 
     return parser
 
-train_classes = {"GroupClass":GroupClass, "Sidon":SidonSetDataPoint, "Triangle":TriangleDataPoint}
+train_classes = {"GroupClass":GroupClass, "Sidon":SidonSetDataPoint, "Triangle":TriangleDataPoint, "Square":SquareDataPoint}
 
 def load_data(infile, classname):
     data = []
@@ -164,6 +170,20 @@ def _worker_batch(args, classname, method, n):
             out.append(d)
     return out
 
+def _detokenize(data, args, classname, base, reverse, n):
+    """
+    Worker function for detokenizing a batch of data
+    """
+    out = []
+    for i in range(n):
+        if i < len(data):
+            d = data[i]
+            lst = d.split(',')
+            l = decode(lst=lst, args=args, classname=classname, base=base, reverse=reverse)
+            if l is not None:
+                out.append(l)
+    return out
+
 
 def select_best(n, data):
     """
@@ -184,20 +204,38 @@ def encode(d,base=10, reverse=False) -> list[str]:
     return d.encode(base=base,reverse=reverse)
 
 
-def decode(lst, params, classname, base=10, reverse=False)-> Optional[Any]:
+def decode(lst, args, classname, base=10, reverse=False)-> Optional[Any]:
     """
     Decode a list of tokens to return a DataPoint classname with the corresponding discriminant. Note: only reads the determinant and do not return the ap
     """
-    return classname(args.val,params).decode(lst,base=base,reverse=reverse)
+    return classname(args.val,args).decode(lst,base=base,reverse=reverse)
 
-def detokenize(data, params, classname, base, reverse):
+def detokenize(data, args, classname, base, reverse):
     res = []
-    for _,d in enumerate(data):
-        lst = d.split(',')
-        l = decode(lst=lst, params=params, classname=classname, base=base,reverse=reverse)
-        if l is None:
-            continue
-        res.append(l)
+    if args.process_pool:
+        BATCH = getattr(args, "gen_batch_size", 10000)
+        batch_counts = [BATCH] * (len(data) // BATCH)
+        rem = len(data) % BATCH
+        if rem:
+            batch_counts.append(rem)
+        with ProcessPoolExecutor(max_workers=min(20, args.num_workers)) as executor:
+            # map returns lists; stream them to avoid a giant materialization
+            for chunk in executor.map(_detokenize,
+                                repeat(data, len(batch_counts)),
+                                repeat(args, len(batch_counts)),
+                                repeat(classname, len(batch_counts)),
+                                repeat(base, len(batch_counts)),
+                                repeat(reverse, len(batch_counts)),
+                                batch_counts):
+                if chunk:  # extend incrementally to manage memory
+                    res.extend(chunk)
+    else:
+        for _,d in enumerate(data):
+            lst = d.split(',')
+            l = decode(lst=lst, args=args, classname=classname, base=base, reverse=reverse)
+            if l is None:
+                continue
+            res.append(l)
     return res
 
 def make_train_test(data,ntest):
@@ -309,7 +347,8 @@ if __name__ == '__main__':
     classname = train_classes[args.task]
     if classname == TriangleDataPoint and args.base == -1:
         args.base = args.triangle_N * (args.triangle_N - 1) // 2
-
+    if classname == SquareDataPoint and args.base == -1:
+        args.base = args.square_N * (args.square_N - 1) // 2
     # system inits
     torch.manual_seed(args.seed)
     # os.makedirs(args.work_dir, exist_ok=True)
@@ -341,7 +380,7 @@ if __name__ == '__main__':
         init_train_dataset = CharDataset(words = [],chars=symbols,max_word_length=args.max_output_length)
         new_words = generate_sample(model,init_train_dataset)
         # decode 
-        data = detokenize(data=new_words, params=args, classname=classname, base=args.base,reverse=args.reverse)
+        data = detokenize(data=new_words, args=args, classname=classname, base=args.base, reverse=args.reverse)
         data = do_score(data,process_pool=args.process_pool,num_workers=args.num_workers,always_search=args.always_search)
     else:    
         # Initialize the data
@@ -395,7 +434,7 @@ if __name__ == '__main__':
         logger.info(f"New words generated length is {len(new_words)}")
 
         # decode 
-        new_data = detokenize(data=new_words,params=args,classname=classname, base=args.base,reverse=args.reverse)
+        new_data = detokenize(data=new_words, args=args, classname=classname, base=args.base, reverse=args.reverse)
         logger.info(f"New data detokenized length is {len(new_data)}")
 
         new_data = do_score(new_data,process_pool=args.process_pool,num_workers=args.num_workers,always_search=args.always_search)

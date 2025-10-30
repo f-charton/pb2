@@ -2,17 +2,24 @@ from environment import DataPoint
 import math
 import random
 import numpy as np
+from itertools import permutations
 from typing import Optional, List, Tuple
 
 
-class TriangleDataPoint(DataPoint):
+class SquareDataPoint(DataPoint):
     def __init__(self, val, params):
         super().__init__(params)
-        self.N: int = params.triangle_N
-        self.triangle_hard: bool = params.triangle_hard
-        if params.triangle_init_method == "edge_removal":
+        self.N: int = params.square_N
+        self.square_hard: bool = params.square_hard
+        # if val:
+        #     self.val = val
+        #     self._ensure_unique_val()
+        #     self._create_matrix()
+        #     self._squares()
+
+        if params.square_init_method == "edge_removal":
             self._generate_graph_by_edge_removal()
-        elif params.triangle_init_method == "edge_addition":
+        elif params.square_init_method == "edge_addition":
             self._generate_graph_by_edge_addition()
         self.calc_score()
         self.calc_features()
@@ -48,13 +55,13 @@ class TriangleDataPoint(DataPoint):
         self.val = sorted(all_edges[:num_edges])
         self._ensure_unique_val()
         self._create_matrix()
-        self._triangles()
-        self._remove_triangles_greedily()
+        self._squares()
+        self._remove_squares_greedily()
 
     def _generate_graph_by_edge_addition(self) -> List[int]:
         self.val = []
         self._create_matrix()
-        self._triangles()
+        self._squares()
         self._add_edges_greedily()
 
     def _create_matrix(self):
@@ -64,20 +71,31 @@ class TriangleDataPoint(DataPoint):
             self.matrix[i, j] = 1
             self.matrix[j, i] = 1
 
-    def _triangles(self):
-        self.triangles = []
+    def _squares(self):
+        self.squares = []
         for i in range(self.N):
             for j in range(i+1, self.N):
-                if self.matrix[i, j] == 1:
-                    for k in range(j+1, self.N):
-                        if self.matrix[i, k] == 1 and self.matrix[j, k] == 1:
-                            self.triangles.append((i, j, k))
+                for k in range(j+1, self.N):
+                    for l in range(k+1, self.N):
+                        if self._is_4_cycle([i, j, k, l]):
+                            self.squares.append((i, j, k, l))
+    
+    def _is_4_cycle(self, vertices: List[int]) -> bool:
+        i, j, k, l = vertices
+        
+        for v1, v2, v3 in permutations([j, k, l]):
+            if (self.matrix[i, v1] == 1 and 
+                self.matrix[v1, v2] == 1 and 
+                self.matrix[v2, v3] == 1 and 
+                self.matrix[v3, i] == 1):
+                return True
+        return False
 
     def calc_score(self):
-        if self.triangle_hard and len(self.triangles) > 0:
+        if self.square_hard and len(self.squares) > 0:
             self.score = -1
             return
-        self.score = len(self.val) - 2 * len(self.triangles)
+        self.score = len(self.val) - 6 * len(self.squares)
 
     def calc_features(self):
         """
@@ -86,7 +104,7 @@ class TriangleDataPoint(DataPoint):
         pass
     
     def encode(self, base=10, reverse=False) -> List[str]:
-        """Encode the triangle-free graph as a list of tokens"""
+        """Encode the square-free graph as a list of tokens"""
         if base == self.N * (self.N - 1) // 2:
             w = list(map(str, self.val))
             w.append("|")
@@ -102,8 +120,8 @@ class TriangleDataPoint(DataPoint):
             w.append("|")
         return w
 
-    def decode(self, lst, base=10, reverse=False) -> Optional["TriangleDataPoint"]:
-        """Decode a list of tokens to return a TriangleDataPoint"""
+    def decode(self, lst, base=10, reverse=False) -> Optional["SquareDataPoint"]:
+        """Decode a list of tokens to return a SquareDataPoint"""
         if base == self.N * (self.N - 1) // 2:
             for i, el in enumerate(lst):
                 if el == "|":
@@ -150,22 +168,22 @@ class TriangleDataPoint(DataPoint):
         self.val = sorted(result)
         self._ensure_unique_val()
         self._create_matrix()
-        self._triangles()
+        self._squares()
         self.calc_features()
         self.calc_score()
         return self
 
     def local_search(self) -> None:
-        self._remove_triangles_greedily()
+        self._remove_squares_greedily()
         self._add_edges_greedily()
-        self._triangles()
+        self._squares()
         self.calc_score()
 
-    def _remove_triangles_greedily(self) -> None:
-        while self.triangles:
+    def _remove_squares_greedily(self) -> None:
+        while self.squares:
             edge_count = {}
-            for (i, j, k) in self.triangles:
-                for edge in [(i, j), (j, k), (i, k)]:
+            for (i, j, k, l) in self.squares:
+                for edge in [(i, j), (j, k), (k, l), (i, l)]:
                     edge_count[edge] = edge_count.get(edge, 0) + 1
             
             most_frequent_edge = max(edge_count, key=edge_count.get)
@@ -177,14 +195,14 @@ class TriangleDataPoint(DataPoint):
                 self.matrix[i, j] = 0
                 self.matrix[j, i] = 0
 
-            self.triangles = [t for t in self.triangles if most_frequent_edge not in [(t[0], t[1]), (t[1], t[2]), (t[0], t[2])]]
+            self.squares = [t for t in self.squares if most_frequent_edge not in [(t[0], t[1]), (t[1], t[2]), (t[2], t[3]), (t[0], t[3])]]
 
     def _add_edges_greedily(self) -> None:
-        adjmat2 = self.matrix @ self.matrix
+        adjmat3 = self.matrix @ self.matrix @ self.matrix
         allowed_edges = []
         for i in range(self.N):
             for j in range(i + 1, self.N):
-                if self.matrix[i, j] == 0 and adjmat2[i, j] == 0:
+                if self.matrix[i, j] == 0 and adjmat3[i, j] == 0:
                     allowed_edges.append((i, j))
         
         while allowed_edges:
@@ -199,15 +217,10 @@ class TriangleDataPoint(DataPoint):
             self.matrix[j, i] = 1
             
             new_allowed_edges = []
+            adjmat3 = self.matrix @ self.matrix @ self.matrix
             for (a, b) in allowed_edges:
-                if ((a == i and self.matrix[b, j] == 1) or (a == j and self.matrix[b, i] == 1) or
-                    (b == i and self.matrix[a, j] == 1) or (b == j and self.matrix[a, i] == 1)):
-                    continue
-                
-                if (a == i and b == j) or (a == j and b == i):
-                    continue
-                
-                new_allowed_edges.append((a, b))
+                if self.matrix[a, b] == 0 and adjmat3[a, b] == 0:
+                    new_allowed_edges.append((a, b))
             
             allowed_edges = new_allowed_edges
         
