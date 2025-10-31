@@ -54,7 +54,8 @@ def _do_score(d, always_search:bool = False):
         invalid = 1
         d.local_search()
         # print(d.score)
-        assert d.score >= 0
+        #Line below not true for all problems
+        # assert d.score >= 0
     elif always_search:
         d.local_search()
     return (d,invalid)
@@ -83,7 +84,8 @@ def do_score(data, process_pool: bool = False, num_workers :int = 20, always_sea
         n_invalid = 0
         with ProcessPoolExecutor(max_workers=num_workers) as ex:
             for d, invalid in ex.map(_do_score, data, repeat(always_search), chunksize=chunksize):
-                assert d.score >= 0 # debug
+                # Line below not true for all problems
+                # assert d.score >= 0 # debug
                 processed_data.append(d)
                 n_invalid += invalid
 
