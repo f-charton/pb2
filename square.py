@@ -179,11 +179,25 @@ class SquareDataPoint(DataPoint):
         self._squares()
         self.calc_score()
 
+    def _get_square_edges(self, vertices: Tuple[int, int, int, int]) -> List[Tuple[int, int]]:
+        i, j, k, l = vertices
+        for v1, v2, v3 in permutations([j, k, l]):
+            if (self.matrix[i, v1] == 1 and 
+                self.matrix[v1, v2] == 1 and 
+                self.matrix[v2, v3] == 1 and 
+                self.matrix[v3, i] == 1):
+                edges = [(min(i, v1), max(i, v1)), 
+                         (min(v1, v2), max(v1, v2)),
+                         (min(v2, v3), max(v2, v3)),
+                         (min(v3, i), max(v3, i))]
+                return edges
+
     def _remove_squares_greedily(self) -> None:
         while self.squares:
             edge_count = {}
-            for (i, j, k, l) in self.squares:
-                for edge in [(i, j), (j, k), (k, l), (i, l)]:
+            for square in self.squares:
+                edges = self._get_square_edges(square)
+                for edge in edges:
                     edge_count[edge] = edge_count.get(edge, 0) + 1
             
             most_frequent_edge = max(edge_count, key=edge_count.get)
@@ -195,7 +209,12 @@ class SquareDataPoint(DataPoint):
                 self.matrix[i, j] = 0
                 self.matrix[j, i] = 0
 
-            self.squares = [t for t in self.squares if most_frequent_edge not in [(t[0], t[1]), (t[1], t[2]), (t[2], t[3]), (t[0], t[3])]]
+            remaining_squares = []
+            for square in self.squares:
+                edges = self._get_square_edges(square)
+                if most_frequent_edge not in edges:
+                    remaining_squares.append(square)
+            self.squares = remaining_squares
 
     def _add_edges_greedily(self) -> None:
         adjmat3 = self.matrix @ self.matrix @ self.matrix
