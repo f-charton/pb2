@@ -197,8 +197,9 @@ class SquareDataPoint(DataPoint):
             edge_count = {}
             for square in self.squares:
                 edges = self._get_square_edges(square)
-                for edge in edges:
-                    edge_count[edge] = edge_count.get(edge, 0) + 1
+                if edges is not None:
+                    for edge in edges:
+                        edge_count[edge] = edge_count.get(edge, 0) + 1
             
             most_frequent_edge = max(edge_count, key=edge_count.get)
             
@@ -212,7 +213,7 @@ class SquareDataPoint(DataPoint):
             remaining_squares = []
             for square in self.squares:
                 edges = self._get_square_edges(square)
-                if most_frequent_edge not in edges:
+                if edges is not None and most_frequent_edge not in edges:
                     remaining_squares.append(square)
             self.squares = remaining_squares
 
