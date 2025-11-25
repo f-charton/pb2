@@ -72,24 +72,32 @@ class SquareDataPoint(DataPoint):
             self.matrix[j, i] = 1
 
     def _squares(self):
+        row_bits = []
+        for i in range(self.N):
+            mask = 0
+            row = self.matrix[i]
+            for j in range(self.N):
+                if row[j] == 1:
+                    mask |= 1 << j
+            row_bits.append(mask)
+        
         self.squares = []
         for i in range(self.N):
-            for j in range(i+1, self.N):
-                for k in range(j+1, self.N):
-                    for l in range(k+1, self.N):
-                        if self._is_4_cycle([i, j, k, l]):
-                            self.squares.append((i, j, k, l))
-    
-    def _is_4_cycle(self, vertices: List[int]) -> bool:
-        i, j, k, l = vertices
-        
-        for v1, v2, v3 in permutations([j, k, l]):
-            if (self.matrix[i, v1] == 1 and 
-                self.matrix[v1, v2] == 1 and 
-                self.matrix[v2, v3] == 1 and 
-                self.matrix[v3, i] == 1):
-                return True
-        return False
+            bits_i = row_bits[i]
+            for j in range(i + 1, self.N):
+                common = bits_i & row_bits[j]
+                x = common
+                while x:
+                    lsb_u = x & -x
+                    u = lsb_u.bit_length() - 1
+                    x ^= lsb_u
+                    y = x
+                    while y:
+                        lsb_v = y & -y
+                        v = lsb_v.bit_length() - 1
+                        y ^= lsb_v
+                        self.squares.append((i, u, j, v))
+
 
     def calc_score(self):
         if self.square_hard and len(self.squares) > 0:
@@ -107,6 +115,14 @@ class SquareDataPoint(DataPoint):
         """Encode the square-free graph as a list of tokens"""
         if base == self.N * (self.N - 1) // 2:
             w = list(map(str, self.val))
+            w.append("|")
+            return w
+        elif base == -2:
+            w = []
+            for i in range(self.N):
+                for j in range(i + 1, self.N):
+                    w.append(str(self.matrix[i, j]))
+                w.append("&")
             w.append("|")
             return w
         w = []
@@ -132,6 +148,40 @@ class SquareDataPoint(DataPoint):
             except ValueError as e:
                 print(f"Value error in the generation {e}")
                 return None
+        elif base == -2:
+            result = []
+            for i, el in enumerate(lst):
+                if el == "|":
+                    lst = lst[:i]
+                    break
+            try:
+                idx = 0
+                jdx = 1
+                expected_count = self.N - 1
+                count = 0
+                for el in lst:
+                    if el == "&":
+                        if count == expected_count:
+                            # Move to next row
+                            idx += 1
+                            jdx = idx + 1
+                            expected_count = self.N - idx - 1
+                            count = 0
+                        else:
+                            return None
+                    elif jdx < self.N:
+                        if el == "1":
+                            result.append(self._edge_to_index(idx, jdx))
+                        jdx += 1
+                        count += 1
+                    else:
+                        return None
+                if idx != self.N or count != 0:
+                    return None
+            except (ValueError, IndexError) as e:
+                print(f"Value error in the generation {e}")
+                return None
+                
         else:
             sub_lists = []
             current = []

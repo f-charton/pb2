@@ -3,6 +3,7 @@ from concurrent.futures import ProcessPoolExecutor
 from itertools import repeat
 from logging import getLogger
 import statistics
+from collections import Counter
 
 logger=getLogger()
 
@@ -35,6 +36,7 @@ def do_stats(n_invalid, data):
         # Evaluation during training
         logger.info(f"Invalid examples: before local search: {n_invalid}, after: {len(data) - len(scores)}")
     if len(scores) > 0:
+        counts = Counter(sorted(scores))
         mean = statistics.mean(scores)
         median = statistics.median(scores)
         stdev = statistics.stdev(scores)
@@ -44,6 +46,9 @@ def do_stats(n_invalid, data):
         logger.info(f"Median score: {median}")
         logger.info(f"stdev score: {stdev}")
         logger.info(f"Max score: {max_score}")
+        logger.info("distribution of scores")
+        for score, count in counts.items():
+            logger.info(f"Score {score}: Count: {count}")
     return
 
 def _do_score(d, always_search:bool = False):

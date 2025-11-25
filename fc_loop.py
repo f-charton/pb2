@@ -20,6 +20,7 @@ from square import SquareDataPoint
 from model import CharDataset, Transformer, InfiniteDataLoader, evaluate, generate
 import os
 import argparse
+import pickle
 
 logger = getLogger()
 
@@ -28,11 +29,11 @@ def get_parser():
     parser = argparse.ArgumentParser('A simple PatternBoost loop for different maths problems')
     
     parser.add_argument('--sample_only', type=int, default=500000, help="sample the specified number from the model in each loop")
-    parser.add_argument('--gensize', type=int, default=1000000, help='Number of generate initial values')
+    parser.add_argument('--gensize', type=int, default=100000, help='Number of generate initial values')
     parser.add_argument('--max_int', type=int, default=1000000000000, help='maximum integer')
-    parser.add_argument('--pop_size', type=int, default=100000, help='New examples at each epoch')
+    parser.add_argument('--pop_size', type=int, default=200000, help='New examples at each epoch')
     parser.add_argument('--max_epochs', type=int, default=1000, help='Number of epochs')
-    parser.add_argument('--ntest', type=int, default=5000, help='Size of test set')
+    parser.add_argument('--ntest', type=int, default=1000, help='Size of test set')
     parser.add_argument('--base', type=int, default=10, help='Encoding base')
     parser.add_argument('--reverse', type=bool_flag, default=False, help='Reversed digits')
     parser.add_argument('--max_len', type=int, default=500, help='Block size, maximumlength of sequences')
@@ -45,7 +46,7 @@ def get_parser():
 
     ### ADD HERE THE PARAMETERS SPECIFIC TO YOUR PROBLEM ###
 
-    parser.add_argument('--symbols', type=str, default="|", help="symbols specific to the problem, separated by ',' ")
+    parser.add_argument('--symbols', type=str, default="|,&", help="symbols specific to the problem, separated by ',' ")
 
     #GroupClass
     parser.add_argument('--val', type=int, default=-1, help='absolute value of the discriminant, generated randomly if -1')
@@ -77,21 +78,21 @@ def get_parser():
 
     # Makemore params
     parser.add_argument('--num_workers', '-n', type=int, default=4, help="number of data workers for both train/test")
-    parser.add_argument('--max-steps', type=int, default=20000, help="max number of optimization steps to run for, or -1 for infinite.")
+    parser.add_argument('--max_steps', type=int, default=50000, help="max number of optimization steps to run for, or -1 for infinite.")
     # parser.add_argument('--max_epochs', type=int, default= 30000, help='number of epochs')
     parser.add_argument('--seed', type=int, default=-1, help="seed")
     # sampling
-    parser.add_argument('--top-k', type=int, default=-1, help="top-k for sampling, -1 means no top-k")
+    parser.add_argument('--top_k', type=int, default=-1, help="top-k for sampling, -1 means no top-k")
     # model
-    parser.add_argument('--n-layer', type=int, default=4, help="number of layers")
-    parser.add_argument('--n-head', type=int, default=4, help="number of heads (in a transformer)")
-    parser.add_argument('--n-embd', type=int, default=64, help="number of feature channels in the model")
+    parser.add_argument('--n_layer', type=int, default=4, help="number of layers")
+    parser.add_argument('--n_head', type=int, default=4, help="number of heads (in a transformer)")
+    parser.add_argument('--n_embd', type=int, default=128, help="number of feature channels in the model")
     # optimization
-    parser.add_argument('--batch-size', '-b', type=int, default=32, help="batch size during optimization")
-    parser.add_argument('--learning-rate', '-l', type=float, default=5e-4, help="learning rate")
-    parser.add_argument('--weight-decay', '-w', type=float, default=0.01, help="weight decay")
+    parser.add_argument('--batch_size', '-b', type=int, default=32, help="batch size during optimization")
+    parser.add_argument('--learning_rate', '-l', type=float, default=5e-4, help="learning rate")
+    parser.add_argument('--weight_decay', '-w', type=float, default=0.01, help="weight decay")
     # evaluation against known "good sequences"
-    parser.add_argument('--max-output-length', type=int, default=160, help="maximum output length")
+    parser.add_argument('--max_output_length', type=int, default=100, help="maximum output length")
     parser.add_argument('--gen_batch_size', type=int, default=1000, help="generation batch size")
     parser.add_argument('--n_tokens', type=int, default=100, help="nr tokens in tokenizer")
     parser.add_argument('--temperature', type=float, default=1.0, help="temperature")
@@ -170,18 +171,16 @@ def _worker_batch(args, classname, method, n):
             out.append(d)
     return out
 
-def _detokenize(data, args, classname, base, reverse, n):
+def _detokenize(data, args, classname, base, reverse):
     """
     Worker function for detokenizing a batch of data
     """
     out = []
-    for i in range(n):
-        if i < len(data):
-            d = data[i]
-            lst = d.split(',')
-            l = decode(lst=lst, args=args, classname=classname, base=base, reverse=reverse)
-            if l is not None:
-                out.append(l)
+    for d in data:
+        lst = d.split(',')
+        l = decode(lst=lst, args=args, classname=classname, base=base, reverse=reverse)
+        if l is not None:
+            out.append(l)
     return out
 
 
@@ -218,15 +217,22 @@ def detokenize(data, args, classname, base, reverse):
         rem = len(data) % BATCH
         if rem:
             batch_counts.append(rem)
+        # Create data slices for each batch
+        data_slices = []
+        start = 0
+        for batch_size in batch_counts:
+            end = start + batch_size
+            data_slices.append(data[start:end])
+            start = end
         with ProcessPoolExecutor(max_workers=min(20, args.num_workers)) as executor:
             # map returns lists; stream them to avoid a giant materialization
             for chunk in executor.map(_detokenize,
-                                repeat(data, len(batch_counts)),
+                                data_slices,
                                 repeat(args, len(batch_counts)),
                                 repeat(classname, len(batch_counts)),
                                 repeat(base, len(batch_counts)),
                                 repeat(reverse, len(batch_counts)),
-                                batch_counts):
+                                ):
                 if chunk:  # extend incrementally to manage memory
                     res.extend(chunk)
     else:
@@ -324,6 +330,10 @@ def generate_sample(model, train_dataset):
 
 
 if __name__ == '__main__':
+
+    if os.environ.get("MODAL_EXP_ID") is None:
+        os.environ["MODAL_EXP_ID"] = time.strftime("%Y_%m_%d_%H_%M_%S")
+
     parser = get_parser()
     args = parser.parse_args()
 
@@ -363,6 +373,8 @@ if __name__ == '__main__':
     model = Transformer(args)
     model.to(args.device)
     model_path = os.path.join(args.dump_path, "model.pt")
+    train_data_path = os.path.join(args.dump_path, "train_data.pkl")
+    test_data_path = os.path.join(args.dump_path, "test_data.pkl")
     if os.path.isfile(model_path): 
         logger.info("resuming from existing model")
 
@@ -376,35 +388,19 @@ if __name__ == '__main__':
             model.load_state_dict(reloaded["state_dict"])
         else:
             model.load_state_dict(reloaded)
-
-        init_train_dataset = CharDataset(words = [],chars=symbols,max_word_length=args.max_output_length)
-        new_words = generate_sample(model,init_train_dataset)
-        # decode 
-        data = detokenize(data=new_words, args=args, classname=classname, base=args.base, reverse=args.reverse)
-        data = do_score(data,process_pool=args.process_pool,num_workers=args.num_workers,always_search=args.always_search)
-    else:    
-        # Initialize the data
-        logger.info("No model recovered")
-        if args.input_file != "":
-            logger.info(f"Data recovered, loading from {args.input_file}")
-            data = load_data(args.input_file, classname=classname)
-        else: 
-            logger.info("No data recovered, generating...")
-            data = generate_and_score(args,classname=classname)
-            # # debug
-            # data_encoded = [encode(d,args.base,args.reverse) for d in data]
-            # debug_data = []
-            # for el in data_encoded:
-            #     debug_el = decode(el,params=args,classname=classname,base=args.base)
-            #     debug_data.append(debug_el)
-            # assert len(debug_data) == len(data_encoded)
-    args.gen_size = len(data)
+    if os.path.isfile(train_data_path):
+        logger.info("resuming from existing data")
+        train_set = pickle.load(open(train_data_path, "rb"))
+        test_set = pickle.load(open(test_data_path, "rb"))
+    else:
+        data = generate_and_score(args,classname=classname)
+        data = select_best(args.pop_size, data)
     
-    data = select_best(args.pop_size, data)
-
-    #Create datasets
-    train_set, test_set = make_train_test(data, args.ntest)
-    logger.info(f"Initial train and test generated. Size are train: {len(train_set)}, test {len(test_set)}")
+        #Create datasets
+        train_set, test_set = make_train_test(data, args.ntest)
+        logger.info(f"Initial train and test generated. Size are train: {len(train_set)}, test {len(test_set)}")
+        pickle.dump(train_set, open(train_data_path, "wb"))
+        pickle.dump(test_set, open(test_data_path, "wb"))
 
     #log initial stats
     do_stats(-1,data=train_set)
@@ -425,7 +421,7 @@ if __name__ == '__main__':
             logger.info(f"Memory allocated:  {torch.cuda.memory_allocated(0)/(1024*1024):.2f}MB, reserved: {torch.cuda.memory_reserved(0)/(1024*1024):.2f}MB")
         elif args.device == "mps":
             logger.info(f"Memory allocated:  {torch.mps.current_allocated_memory()/(1024*1024):.2f}MB, reserved: {torch.mps.driver_allocated_memory()/(1024*1024):.2f}MB")
-        optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay, betas=(0.9, 0.99), eps=1e-8)
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay, betas=(0.9, 0.99), eps=1e-8, fused=True)
         batch_loader = InfiniteDataLoader(train_dataset, batch_size=args.batch_size, pin_memory=True, num_workers=args.num_workers)
 
         train(model, batch_loader,optimizer, test_dataset)
@@ -447,6 +443,10 @@ if __name__ == '__main__':
         logger.info(f"New train and test generated. Size are train: {len(new_train)}, test {len(test_set)}")
         #Get all examples of previous train and current train and then select best.
         train_set = select_best(args.pop_size, train_set + new_train)
+    
+        pickle.dump(test_set, open(test_data_path, "wb"))
+        pickle.dump(train_set, open(train_data_path, "wb"))
+    
         n_epoch += 1
 
 
