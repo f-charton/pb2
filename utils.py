@@ -108,28 +108,25 @@ def get_dump_path(params):
         assert chronos_job_id is None or slurm_job_id is None
         exp_id = chronos_job_id if chronos_job_id is not None else slurm_job_id
         if exp_id is None:
-            chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
-            while True:
-                exp_id = ''.join(random.choice(chars) for _ in range(10))
-                if not os.path.isdir(os.path.join(sweep_path, exp_id)):
-                    break
+            if "MODAL_EXP_ID" in os.environ:
+                exp_id = os.environ["MODAL_EXP_ID"]
+            else:
+                chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
+                while True:
+                    exp_id = ''.join(random.choice(chars) for _ in range(10))
+                    if not os.path.isdir(os.path.join(sweep_path, exp_id)):
+                        break
         else:
             assert exp_id.isdigit()
         params.exp_id = exp_id
+    else:
+        if "MODAL_EXP_ID" in os.environ:
+            params.exp_id = os.environ["MODAL_EXP_ID"]
 
     # create the dump folder / update parameters
     params.dump_path = os.path.join(sweep_path, params.exp_id)
     if not os.path.isdir(params.dump_path):
         subprocess.Popen("mkdir -p %s" % params.dump_path, shell=True).wait()
-
-
-def to_cuda(*args):
-    """
-    Move tensors to CUDA.
-    """
-    if not CUDA:
-        return args
-    return [None if x is None else x.cuda() for x in args]
 
 
 class TimeoutError(BaseException):
