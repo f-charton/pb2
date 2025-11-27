@@ -1,10 +1,10 @@
+from concurrent.futures import ProcessPoolExecutor
 from slurm import init_signal_handler, init_distributed_mode
 from utils import bool_flag, initialize_exp
 from logging import getLogger
 import numpy as np
 import time
 import random
-import statistics
 import torch
 from envs.environment import do_score
 from envs import ENVS, build_env
@@ -33,7 +33,7 @@ def get_parser():
     parser.add_argument('--max_epochs', type=int, default=1000, help='Number of epochs')
     parser.add_argument('--ntest', type=int, default=5000, help='Size of test set')
     parser.add_argument('--max_len', type=int, default=150, help='Block size, maximumlength of sequences')
-    parser.add_argument('--env_name', type=str, default='rank_three', help='Task to optimize')
+    parser.add_argument('--env_name', type=str, default='threerank', help='Task to optimize')
     # environment parameters
     # ENVS[parser.parse_known_args()[0].env_name].register_args(parser)
     ENVS[parser.parse_known_args()[0].env_name].data_class.register_args(parser)
@@ -256,8 +256,8 @@ if __name__ == '__main__':
         train_words = [d.encode() for d in train]
         test_words = [d.encode() for d in test]
         # data loaders
-        train_dataset = CharDataset(train_words, symbols, args.max_output_length)
-        test_dataset = CharDataset(test_words, symbols, args.max_output_length)
+        train_dataset = CharDataset(train_words, env.symbols, args.max_output_length)
+        test_dataset = CharDataset(test_words, env.symbols, args.max_output_length)
 
         logger.info(f"Memory allocated:  {torch.cuda.memory_allocated(0)/(1024*1024):.2f}MB, reserved: {torch.cuda.memory_reserved(0)/(1024*1024):.2f}MB")
         optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay, betas=(0.9, 0.99), eps=1e-8)

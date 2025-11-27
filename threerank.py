@@ -2,7 +2,7 @@ from typing import Optional
 import numpy as np
 import math
 from collections import Counter
-from environment import DataPoint
+from envs.environment import DataPoint
 from sympy import primerange, factorint, isprime
 from numpy import lcm
 

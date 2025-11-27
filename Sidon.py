@@ -2,7 +2,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from logging import getLogger
 from typing import Dict, List, Tuple, Optional
-from environment import DataPoint
+from envs.environment import DataPoint
 import random
 from collections import Counter
 import math

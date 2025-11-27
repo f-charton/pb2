@@ -7,16 +7,17 @@ import time
 import random
 import statistics
 import torch
-from environment import do_score, do_stats
+from envs.environment import do_score, do_stats
 from itertools import repeat, chain
+from envs import ENVS, build_env
 
 import torch
 from typing import Any, List, Optional
 
 from threerank import GroupClass
 from Sidon  import SidonSetDataPoint
-from triangle import TriangleDataPoint
-from square import SquareDataPoint
+from envs.triangle import TriangleDataPoint
+from envs.square import SquareDataPoint
 from model import CharDataset, Transformer, InfiniteDataLoader, evaluate, generate
 import os
 import argparse
@@ -37,7 +38,10 @@ def get_parser():
     parser.add_argument('--base', type=int, default=10, help='Encoding base')
     parser.add_argument('--reverse', type=bool_flag, default=False, help='Reversed digits')
     parser.add_argument('--max_len', type=int, default=500, help='Block size, maximumlength of sequences')
-    parser.add_argument('--task', type=str, default="GroupClass", help='Math problem to be addressed')
+    parser.add_argument('--env_name', type=str, default="threerank", help='Math problem to be addressed')
+    ENVS[parser.parse_known_args()[0].env_name].register_args(parser)
+
+    
     parser.add_argument('--input_file', type=str, default="", help='Optional input file with data')
     parser.add_argument('--process_pool', type=bool_flag, default="true", help='use process_pool to generate and score initial data')
     parser.add_argument('--always_search', type=bool_flag, default="true", help='if True, use local search for all examples generated (if False, only for invalid examples)')
@@ -67,14 +71,14 @@ def get_parser():
     parser.add_argument('--sidon_steps', type=int, default=2000, help='number of steps in local search')
 
     #TriangleFree
-    parser.add_argument('--triangle_N', type=int, default=30, help='Number of vertices in the triangle-free graph')
-    parser.add_argument('--triangle_hard', type=bool_flag, default="false", help='whether only triang-free graphs are accepted')
-    parser.add_argument('--triangle_init_method', type=str, default="edge_removal", help='method of generation')
+    #parser.add_argument('--triangle_N', type=int, default=30, help='Number of vertices in the triangle-free graph')
+    #parser.add_argument('--triangle_hard', type=bool_flag, default="false", help='whether only triang-free graphs are accepted')
+    #parser.add_argument('--triangle_init_method', type=str, default="edge_removal", help='method of generation')
 
     #SquareFree
-    parser.add_argument('--square_N', type=int, default=30, help='Number of vertices in the square-free graph')
-    parser.add_argument('--square_hard', type=bool_flag, default="false", help='whether only square-free graphs are accepted')
-    parser.add_argument('--square_init_method', type=str, default="edge_removal", help='method of generation')
+    #parser.add_argument('--square_N', type=int, default=30, help='Number of vertices in the square-free graph')
+    #parser.add_argument('--square_hard', type=bool_flag, default="false", help='whether only square-free graphs are accepted')
+    #parser.add_argument('--square_init_method', type=str, default="edge_removal", help='method of generation')
 
     # Makemore params
     parser.add_argument('--num_workers', '-n', type=int, default=4, help="number of data workers for both train/test")
@@ -116,10 +120,11 @@ def get_parser():
                         help="Debug multi-GPU / multi-node within a SLURM job")
     parser.add_argument("--debug", help="Enable all debug flags",
                         action="store_true")
-
+    
+    
     return parser
 
-train_classes = {"GroupClass":GroupClass, "Sidon":SidonSetDataPoint, "Triangle":TriangleDataPoint, "Square":SquareDataPoint}
+train_classes = {"threerank":GroupClass, "Sidon":SidonSetDataPoint, "triangle":TriangleDataPoint, "square":SquareDataPoint}
 
 def load_data(infile, classname):
     data = []
@@ -134,6 +139,7 @@ def generate_and_score(args, classname):
     Generation method if no data
     """
     data = []
+    print(classname.N)
     if args.process_pool:
         BATCH = getattr(args, "gen_batch_size", 10000)
         batch_counts = [BATCH] * (args.gensize // BATCH)
@@ -158,9 +164,8 @@ def generate_and_score(args, classname):
     return data
 
 def _generate_and_score(args,classname):
-    d = classname(args.val,args)
-    d.calc_features()
-    d.calc_score()
+    #print(classname.N)
+    d = classname()
     return d if d.score >=0 else None
 
 def _worker_batch(args, classname, method, n):
@@ -171,14 +176,14 @@ def _worker_batch(args, classname, method, n):
             out.append(d)
     return out
 
-def _detokenize(data, args, classname, base, reverse):
+def _detokenize(data):
     """
     Worker function for detokenizing a batch of data
     """
     out = []
     for d in data:
         lst = d.split(',')
-        l = decode(lst=lst, args=args, classname=classname, base=base, reverse=reverse)
+        l = env.tokenizer.decode(lst)
         if l is not None:
             out.append(l)
     return out
@@ -196,20 +201,20 @@ def select_best(n, data):
     random.shuffle(to_shuff)
     return to_shuff
 
-def encode(d,base=10, reverse=False) -> list[str]:
-    """
-    Encode the data as a list of tokens containing the ap and the value of the discriminant
-    """
-    return d.encode(base=base,reverse=reverse)
+#def encode(d,base=10, reverse=False) -> list[str]:
+#    """
+#    Encode the data as a list of tokens containing the ap and the value of the discriminant
+#    """
+#    return d.encode(base=base,reverse=reverse)
 
 
-def decode(lst, args, classname, base=10, reverse=False)-> Optional[Any]:
-    """
-    Decode a list of tokens to return a DataPoint classname with the corresponding discriminant. Note: only reads the determinant and do not return the ap
-    """
-    return classname(args.val,args).decode(lst,base=base,reverse=reverse)
+#def decode(lst, args, classname, base=10, reverse=False)-> Optional[Any]:
+#    """
+#    Decode a list of tokens to return a DataPoint classname with the corresponding discriminant. Note: only reads the determinant and do not return the ap
+#    """
+#    return classname(args.val,args).decode(lst,base=base,reverse=reverse)
 
-def detokenize(data, args, classname, base, reverse):
+def detokenize(data):
     res = []
     if args.process_pool:
         BATCH = getattr(args, "gen_batch_size", 10000)
@@ -226,19 +231,13 @@ def detokenize(data, args, classname, base, reverse):
             start = end
         with ProcessPoolExecutor(max_workers=min(20, args.num_workers)) as executor:
             # map returns lists; stream them to avoid a giant materialization
-            for chunk in executor.map(_detokenize,
-                                data_slices,
-                                repeat(args, len(batch_counts)),
-                                repeat(classname, len(batch_counts)),
-                                repeat(base, len(batch_counts)),
-                                repeat(reverse, len(batch_counts)),
-                                ):
+            for chunk in executor.map(_detokenize, data_slices):
                 if chunk:  # extend incrementally to manage memory
                     res.extend(chunk)
     else:
         for _,d in enumerate(data):
             lst = d.split(',')
-            l = decode(lst=lst, args=args, classname=classname, base=base, reverse=reverse)
+            l = env.tokenizer.decode(lst)
             if l is None:
                 continue
             res.append(l)
@@ -354,17 +353,23 @@ if __name__ == '__main__':
         args.seed = np.random.randint(1_000_000_000)
     logger.info(f"seed: {args.seed}")
 
-    classname = train_classes[args.task]
-    if classname == TriangleDataPoint and args.base == -1:
-        args.base = args.triangle_N * (args.triangle_N - 1) // 2
-    if classname == SquareDataPoint and args.base == -1:
-        args.base = args.square_N * (args.square_N - 1) // 2
+    env = build_env(args)
+
+    classname = env.data_class
+    print(env.data_class.N, 'sdp')
+    print(classname.N, 'sdp')
+    
+    #if classname == TriangleDataPoint and args.base == -1:
+    #    args.base = args.triangle_N * (args.triangle_N - 1) // 2
+    #if classname == SquareDataPoint and args.base == -1:
+    #    args.base = args.square_N * (args.square_N - 1) // 2
     # system inits
     torch.manual_seed(args.seed)
     # os.makedirs(args.work_dir, exist_ok=True)
-    symbols = [str(i) for i in range(max(args.base,3))]
-    symbols.extend(args.symbols.split(","))
-    args.vocab_size = len(symbols) + 1
+
+    #symbols = [str(i) for i in range(max(args.base,3))]
+    #env.symbols.extend(args.symbols.split(","))
+    args.vocab_size = len(env.symbols) + 1
     args.block_size = args.max_len
 
     #Initialize class to be adressed
@@ -410,12 +415,12 @@ if __name__ == '__main__':
     for epoch in range(args.max_epochs):
         logger.info(f"==== Starting Epoch {n_epoch} =====")
         # tokenize 
-        train_words = [encode(d,args.base,args.reverse) for d in train_set]
+        train_words = [env.tokenizer.encode(d) for d in train_set]
         print("HERE some train words",train_words[:5])
-        test_words = [encode(d,args.base,args.reverse) for d in test_set]
+        test_words = [env.tokenizer.encode(d) for d in test_set]
         # data loaders
-        train_dataset = CharDataset(train_words, symbols, args.max_output_length)
-        test_dataset = CharDataset(test_words, symbols, args.max_output_length)
+        train_dataset = CharDataset(train_words, env.symbols, args.max_output_length)
+        test_dataset = CharDataset(test_words, env.symbols, args.max_output_length)
 
         if args.device == "cuda":
             logger.info(f"Memory allocated:  {torch.cuda.memory_allocated(0)/(1024*1024):.2f}MB, reserved: {torch.cuda.memory_reserved(0)/(1024*1024):.2f}MB")
@@ -430,7 +435,7 @@ if __name__ == '__main__':
         logger.info(f"New words generated length is {len(new_words)}")
 
         # decode 
-        new_data = detokenize(data=new_words, args=args, classname=classname, base=args.base, reverse=args.reverse)
+        new_data = detokenize(new_words)
         logger.info(f"New data detokenized length is {len(new_data)}")
 
         new_data = do_score(new_data,process_pool=args.process_pool,num_workers=args.num_workers,always_search=args.always_search)

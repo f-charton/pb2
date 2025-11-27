@@ -1,21 +1,26 @@
-from envs.environment import DataPoint
+from envs.environment import DataPoint, BaseEnvironment
 import math
 import random
 import numpy as np
+from .tokenizers import SparseTokenizer, DenseTokenizer
 from typing import Optional, List, Tuple
 
 
 class TriangleDataPoint(DataPoint):
-    def __init__(self, val, params):
-        super().__init__(params)
-        self.N: int = params.triangle_N
-        self.triangle_hard: bool = params.triangle_hard
-        if params.triangle_init_method == "edge_removal":
-            self._generate_graph_by_edge_removal()
-        elif params.triangle_init_method == "edge_addition":
-            self._generate_graph_by_edge_addition()
-        self.calc_score()
+    N = 4
+    SQUARE_HARD = True
+    INIT_METHOD = 'edge_addition'
+
+    def __init__(self, val=None):
+        super().__init__()
+        self.val = val
+        if val is None:
+            if self.INIT_METHOD == "edge_removal":
+                self._generate_graph_by_edge_removal()
+            elif self.INIT_METHOD == "edge_addition":
+                self._generate_graph_by_edge_addition()
         self.calc_features()
+        self.calc_score()
 
     def _edge_to_index(self, i: int, j: int) -> int:
         """Convert edge (i,j) to linear index in upper triangular matrix"""
@@ -46,15 +51,12 @@ class TriangleDataPoint(DataPoint):
         all_edges = list(range(max_edges))
         random.shuffle(all_edges)
         self.val = sorted(all_edges[:num_edges])
-        self._ensure_unique_val()
-        self._create_matrix()
-        self._triangles()
+        self.calc_features()
         self._remove_triangles_greedily()
 
     def _generate_graph_by_edge_addition(self) -> List[int]:
         self.val = []
-        self._create_matrix()
-        self._triangles()
+        self.calc_features()
         self._add_edges_greedily()
 
     def _create_matrix(self):
@@ -74,7 +76,7 @@ class TriangleDataPoint(DataPoint):
                             self.triangles.append((i, j, k))
 
     def calc_score(self):
-        if self.triangle_hard and len(self.triangles) > 0:
+        if self.TRIANGLE_HARD and len(self.triangles) > 0:
             self.score = -1
             return
         self.score = len(self.val) - 2 * len(self.triangles)
@@ -83,77 +85,10 @@ class TriangleDataPoint(DataPoint):
         """
         Compute optional features to give more signal to the transformer
         """
-        pass
-    
-    def encode(self, base=10, reverse=False) -> List[str]:
-        """Encode the triangle-free graph as a list of tokens"""
-        if base == self.N * (self.N - 1) // 2:
-            w = list(map(str, self.val))
-            w.append("|")
-            return w
-        w = []
-        for el in self.val:
-            v = el
-            curr_w = []
-            while v > 0:
-                curr_w.append(str(v % base))
-                v = v // base
-            w.extend(curr_w)
-            w.append("|")
-        return w
-
-    def decode(self, lst, base=10, reverse=False) -> Optional["TriangleDataPoint"]:
-        """Decode a list of tokens to return a TriangleDataPoint"""
-        if base == self.N * (self.N - 1) // 2:
-            for i, el in enumerate(lst):
-                if el == "|":
-                    lst = lst[:i]
-                    break
-            try:
-                result = list(map(int, lst))
-            except ValueError as e:
-                print(f"Value error in the generation {e}")
-                return None
-        else:
-            sub_lists = []
-            current = []
-            for item in lst:
-                if item == "|":
-                    if current:
-                        sub_lists.append(current)
-                        current = []
-                else:
-                    current.append(item)
-            if current:
-                sub_lists.append(current)
-
-            result = []
-            try:
-                for sub_list in sub_lists:
-                    if base <= 36:
-                        num_str = ''.join(sub_list)
-                        num = int(num_str, base)
-                    else:
-                        num = 0
-                        for el in sub_list:
-                            v = int(el)
-                            if v < 0 or v >= base:
-                                raise ValueError(f"Digit {v} out of range for base {base}")
-                            num = num * base + v
-                    if num >= self.N * (self.N - 1) // 2:
-                        continue
-                    result.append(num)
-            except ValueError as e:
-                print(f"Value error in the generation {e}")
-                return None
-        
-        self.val = sorted(result)
         self._ensure_unique_val()
         self._create_matrix()
         self._triangles()
-        self.calc_features()
-        self.calc_score()
-        return self
+    
 
     def local_search(self) -> None:
         self._remove_triangles_greedily()
@@ -212,3 +147,34 @@ class TriangleDataPoint(DataPoint):
             allowed_edges = new_allowed_edges
         
         self._ensure_unique_val()
+
+
+
+class TriangleEnvironment(BaseEnvironment):
+    data_class = TriangleDataPoint
+
+    def __init__(self, params):
+        super().__init__(params)
+        TriangleDataPoint.N = params.triangle_N
+        TriangleDataPoint.SQUARE_HARD = params.triangle_hard
+        TriangleDataPoint.INIT_METHOD = params.triangle_init_method
+        if params.edge_tokens:
+            base = params.triangle_N * (params.triangle_N - 1) // 2
+            self.tokenizer = SparseTokenizer(params.triangle_N, TriangleDataPoint)
+            self.symbols = [str(i) for i in range(base)]
+        else:
+            self.tokenizer = DenseTokenizer(params.triangle_N, TriangleDataPoint)
+            self.symbols = [str(i) for i in range(3)]
+            
+        self.symbols.extend(params.symbols.split(","))
+
+    @staticmethod
+    def register_args(parser):
+        """
+        Register environment parameters.
+        """
+        parser.add_argument('--triangle_N', type=int, default=30, help='Number of vertices in the triangle-free graph')
+        parser.add_argument('--triangle_hard', type=bool_flag, default="false", help='whether only triang-free graphs are accepted')
+        parser.add_argument('--triangle_init_method', type=str, default="edge_removal", help='method of generation')
+        parser.add_argument('--edge_tokens', type=bool_flag, default="false", help='toknized by edge or adjacency matrix')
+
