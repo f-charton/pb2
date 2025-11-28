@@ -26,6 +26,15 @@ class SquareDataPoint(DataPoint):
         self.calc_features()
         self.calc_score()
         
+    @classmethod
+    def _update_class_params(self,pars):
+        self.N = pars[0]
+        self.SQUARE_HARD = pars[1]
+        self.INIT_METHOD = pars[2]
+
+    @classmethod
+    def _save_class_params(self):
+        return (self.N, self.SQUARE_HARD, self.INIT_METHOD)
 
     def _edge_to_index(self, i: int, j: int) -> int:
         """Convert edge (i,j) to linear index in upper triangular matrix"""

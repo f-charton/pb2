@@ -22,6 +22,17 @@ class TriangleDataPoint(DataPoint):
         self.calc_features()
         self.calc_score()
 
+    @classmethod
+    def _update_class_params(self,pars):
+        self.N = pars[0]
+        self.SQUARE_HARD = pars[1]
+        self.INIT_METHOD = pars[2]
+
+    @classmethod
+    def _save_class_params(self):
+        return (self.N, self.SQUARE_HARD, self.INIT_METHOD)
+
+
     def _edge_to_index(self, i: int, j: int) -> int:
         """Convert edge (i,j) to linear index in upper triangular matrix"""
         return i * (2 * self.N - i - 1) // 2 + (j - i - 1)
@@ -165,7 +176,7 @@ class TriangleEnvironment(BaseEnvironment):
         else:
             self.tokenizer = DenseTokenizer(params.triangle_N, TriangleDataPoint)
             self.symbols = [str(i) for i in range(3)]
-            
+
         self.symbols.extend(params.symbols.split(","))
 
     @staticmethod

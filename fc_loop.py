@@ -140,50 +140,66 @@ def generate_and_score(args, classname):
     """
     data = []
     print(classname.N)
+    BATCH = getattr(args, "gen_batch_size", 10000)
+    batch_counts = [BATCH] * (args.gensize // BATCH)
+    rem = args.gensize % BATCH
+    if rem:
+        batch_counts.append(rem)
     if args.process_pool:
-        BATCH = getattr(args, "gen_batch_size", 10000)
-        batch_counts = [BATCH] * (args.gensize // BATCH)
-        rem = args.gensize % BATCH
-        if rem:
-            batch_counts.append(rem)
+        pars = classname._save_class_params()
         with ProcessPoolExecutor(max_workers=min(20,args.num_workers)) as executor:
             # map returns lists; stream them to avoid a giant materialization
-            for chunk in executor.map(_worker_batch,
-                                repeat(args, len(batch_counts)),
+            for chunk in executor.map(_batch_generate_and_score,
                                 repeat(classname, len(batch_counts)),
-                                repeat(_generate_and_score, len(batch_counts)),
-                                batch_counts):
+                                batch_counts, repeat(pars, len(batch_counts))):
+            #for chunk in executor.map(_worker_batch,
+            #                    repeat(classname, len(batch_counts)),
+            #                    repeat(_generate_and_score, len(batch_counts)),
+            #                    batch_counts, repeat(pars, len(batch_counts))):
                 if chunk:  # extend incrementally to manage memory
                     data.extend(chunk)
     else:
-        for _ in range(args.gensize):
-            d = _generate_and_score(args,classname)
+        for t in batch_counts:
+            d = _batch_generate_and_score(classname, t)
             if d is not None:
-                data.append(d)
+                data.extend(d)
     print("HERE some data",[el.val for el in data[:5]])
     return data
 
-def _generate_and_score(args,classname):
-    #print(classname.N)
+def _batch_generate_and_score(classname,n, pars=None):
+    out = []
+    if pars is not None:
+        classname._update_class_params(pars)
+    for _ in range(n):
+        d = classname()
+        if d.score >=0:
+            out.append(d)
+    return out #d if d.score >=0 else None
+
+def _generate_and_score(classname):
     d = classname()
     return d if d.score >=0 else None
 
-def _worker_batch(args, classname, method, n):
+def _worker_batch(classname, method, n, pars):
     out = []
+    if pars is not None:
+        classname._update_class_params(pars)
     for _ in range(n):
-        d = method(args, classname)
+        d = method(classname)
         if d is not None:
             out.append(d)
     return out
 
-def _detokenize(data):
+def _detokenize(data,tok, pars=None):
     """
     Worker function for detokenizing a batch of data
     """
     out = []
+    if pars is not None:
+        tok.dataclass._update_class_params(pars)
     for d in data:
         lst = d.split(',')
-        l = env.tokenizer.decode(lst)
+        l = tok.decode(lst)
         if l is not None:
             out.append(l)
     return out
@@ -217,6 +233,8 @@ def select_best(n, data):
 def detokenize(data):
     res = []
     if args.process_pool:
+        pars = env.tokenizer.dataclass._save_class_params()
+        
         BATCH = getattr(args, "gen_batch_size", 10000)
         batch_counts = [BATCH] * (len(data) // BATCH)
         rem = len(data) % BATCH
@@ -231,7 +249,7 @@ def detokenize(data):
             start = end
         with ProcessPoolExecutor(max_workers=min(20, args.num_workers)) as executor:
             # map returns lists; stream them to avoid a giant materialization
-            for chunk in executor.map(_detokenize, data_slices):
+            for chunk in executor.map(_detokenize, data_slices, repeat(env.tokenizer,len(data_slices)),repeat(pars, len(data_slices))):
                 if chunk:  # extend incrementally to manage memory
                     res.extend(chunk)
     else:

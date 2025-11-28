@@ -74,8 +74,10 @@ def do_stats(n_invalid, data):
             logger.info(f"Score {score}: Count: {count}")
     return
 
-def _do_score(d, always_search:bool = False):
+def _do_score(d, always_search:bool = False,pars=None):
     invalid = 0
+    if pars is not None:
+        d._update_class_params(pars)
     d.calc_features()
     d.calc_score()
     if d.score < 0:
@@ -99,11 +101,13 @@ def do_score(data, process_pool: bool = False, num_workers :int = 20, always_sea
             n_invalid += invalid
         processed_data = data
     else:
+        pars = data[0]._save_class_params()
+        
         chunksize = max(1, len(data) // (num_workers * 32))
         processed_data = []
         n_invalid = 0
         with ProcessPoolExecutor(max_workers=num_workers) as ex:
-            for d, invalid in ex.map(_do_score, data, repeat(always_search), chunksize=chunksize):
+            for d, invalid in ex.map(_do_score, data, repeat(always_search), repeat(pars), chunksize=chunksize):
                 # Line below not true for all problems
                 # assert d.score >= 0 # debug
                 processed_data.append(d)
