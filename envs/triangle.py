@@ -33,6 +33,10 @@ class TriangleDataPoint(DataPoint):
         return (self.N, self.SQUARE_HARD, self.INIT_METHOD)
 
 
+    @classmethod
+    def _batch_generate_and_score(cls,n, pars=None):
+        return super()._batch_generate_and_score(n,pars)
+
     def _edge_to_index(self, i: int, j: int) -> int:
         """Convert edge (i,j) to linear index in upper triangular matrix"""
         return i * (2 * self.N - i - 1) // 2 + (j - i - 1)

@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from concurrent.futures import ProcessPoolExecutor
 #from .square import SquareDataPoint
 
 class Tokenizer(ABC):
@@ -7,7 +8,7 @@ class Tokenizer(ABC):
     abstract methods for encoding/decoding numbers
     """
     def __init__(self):
-        pass
+        self.dataclass = None
 
     @abstractmethod
     def encode(self, val):
@@ -16,6 +17,21 @@ class Tokenizer(ABC):
     @abstractmethod
     def decode(self, lst):
         pass
+    
+    def decode_batch(self, data, pars=None):
+        """
+        Worker function for detokenizing a batch of data
+        """
+        out = []
+        if pars is not None:
+            self.dataclass._update_class_params(pars)
+        for d in data:
+            lst = d.split(',')
+            l = self.decode(lst)
+            if l is not None:
+                out.append(l)
+        return out
+
 
 
 class SparseTokenizer(Tokenizer):
@@ -42,6 +58,9 @@ class SparseTokenizer(Tokenizer):
             return None
         return self.dataclass(result)
 
+    # stupid but needed to please PoolExectutor
+    def decode_batch(self, data, pars=None):
+        return super().decode_batch(data, pars)
 
 class DenseTokenizer(Tokenizer):
     def __init__(self, N, dataclass):
@@ -98,3 +117,6 @@ class DenseTokenizer(Tokenizer):
             
         return self.dataclass(result)
 
+    # stupid but needed to please PoolExectutor
+    def decode_batch(self, data, pars=None):
+        return super().decode_batch(data, pars)

@@ -4,8 +4,6 @@ from utils import bool_flag, initialize_exp
 from logging import getLogger
 import numpy as np
 import time
-import random
-import statistics
 import torch
 from envs.environment import do_score, do_stats
 from itertools import repeat, chain
@@ -14,14 +12,10 @@ from envs import ENVS, build_env
 import torch
 from typing import Any, List, Optional
 
-from threerank import GroupClass
-from Sidon  import SidonSetDataPoint
-from envs.triangle import TriangleDataPoint
-from envs.square import SquareDataPoint
-from model import CharDataset, Transformer, InfiniteDataLoader, evaluate, generate
+from model import  Transformer, evaluate, generate
+from datasets import CharDataset, InfiniteDataLoader, load_initial_data, update_datasets
 import os
 import argparse
-import pickle
 
 logger = getLogger()
 
@@ -55,30 +49,6 @@ def get_parser():
     #GroupClass
     parser.add_argument('--val', type=int, default=-1, help='absolute value of the discriminant, generated randomly if -1')
     parser.add_argument('--nb_ap', type=int, default=10, help='Number of ap')
-
-    #SidonSets
-    parser.add_argument('--N', type=int, default="500", help='Defines the set {0,....,N} in which the Sidon subset is looked for')
-    parser.add_argument('--M', type=int, default="1", help='reward weight for length of Sidon Sets')
-    parser.add_argument('--hard', type=bool_flag, default="true", help='whether only sidon sets are accepted')
-    parser.add_argument('--insert_prob', type=float, default=0.33, help='probability of insert move in the local search')
-    parser.add_argument('--delete_prob', type=float, default=0.33, help='probability of delete move in the local search')
-    parser.add_argument('--shift_prob', type=float, default=0.33, help='probability of shift move in the local search')
-    parser.add_argument('--temp0', type=float, default=0.33, help='temp0 of the local search')
-    parser.add_argument('--temp_decay', type=float, default=0.33, help='temp_decay of the local search')
-    parser.add_argument('--init_method', type=str, default="random_greedy", help='method of generation')
-    parser.add_argument("--init_k", type=int, default=-1, help="by default size of the Sidon set that one tries to construct in the generation")
-    parser.add_argument("--jitter_init", type=bool_flag, default="true", help="if generation is evenly spaced, should there be random displacements")
-    parser.add_argument('--sidon_steps', type=int, default=2000, help='number of steps in local search')
-
-    #TriangleFree
-    #parser.add_argument('--triangle_N', type=int, default=30, help='Number of vertices in the triangle-free graph')
-    #parser.add_argument('--triangle_hard', type=bool_flag, default="false", help='whether only triang-free graphs are accepted')
-    #parser.add_argument('--triangle_init_method', type=str, default="edge_removal", help='method of generation')
-
-    #SquareFree
-    #parser.add_argument('--square_N', type=int, default=30, help='Number of vertices in the square-free graph')
-    #parser.add_argument('--square_hard', type=bool_flag, default="false", help='whether only square-free graphs are accepted')
-    #parser.add_argument('--square_init_method', type=str, default="edge_removal", help='method of generation')
 
     # Makemore params
     parser.add_argument('--num_workers', '-n', type=int, default=4, help="number of data workers for both train/test")
@@ -120,115 +90,9 @@ def get_parser():
                         help="Debug multi-GPU / multi-node within a SLURM job")
     parser.add_argument("--debug", help="Enable all debug flags",
                         action="store_true")
-    
-    
+  
     return parser
 
-train_classes = {"threerank":GroupClass, "Sidon":SidonSetDataPoint, "triangle":TriangleDataPoint, "square":SquareDataPoint}
-
-def load_data(infile, classname):
-    data = []
-    with open(infile, "r") as file:
-        for line in file:
-            d = classname.from_string(line)
-            data.append(d)
-    return data
-
-def generate_and_score(args, classname):
-    """
-    Generation method if no data
-    """
-    data = []
-    print(classname.N)
-    BATCH = getattr(args, "gen_batch_size", 10000)
-    batch_counts = [BATCH] * (args.gensize // BATCH)
-    rem = args.gensize % BATCH
-    if rem:
-        batch_counts.append(rem)
-    if args.process_pool:
-        pars = classname._save_class_params()
-        with ProcessPoolExecutor(max_workers=min(20,args.num_workers)) as executor:
-            # map returns lists; stream them to avoid a giant materialization
-            for chunk in executor.map(_batch_generate_and_score,
-                                repeat(classname, len(batch_counts)),
-                                batch_counts, repeat(pars, len(batch_counts))):
-            #for chunk in executor.map(_worker_batch,
-            #                    repeat(classname, len(batch_counts)),
-            #                    repeat(_generate_and_score, len(batch_counts)),
-            #                    batch_counts, repeat(pars, len(batch_counts))):
-                if chunk:  # extend incrementally to manage memory
-                    data.extend(chunk)
-    else:
-        for t in batch_counts:
-            d = _batch_generate_and_score(classname, t)
-            if d is not None:
-                data.extend(d)
-    print("HERE some data",[el.val for el in data[:5]])
-    return data
-
-def _batch_generate_and_score(classname,n, pars=None):
-    out = []
-    if pars is not None:
-        classname._update_class_params(pars)
-    for _ in range(n):
-        d = classname()
-        if d.score >=0:
-            out.append(d)
-    return out #d if d.score >=0 else None
-
-def _generate_and_score(classname):
-    d = classname()
-    return d if d.score >=0 else None
-
-def _worker_batch(classname, method, n, pars):
-    out = []
-    if pars is not None:
-        classname._update_class_params(pars)
-    for _ in range(n):
-        d = method(classname)
-        if d is not None:
-            out.append(d)
-    return out
-
-def _detokenize(data,tok, pars=None):
-    """
-    Worker function for detokenizing a batch of data
-    """
-    out = []
-    if pars is not None:
-        tok.dataclass._update_class_params(pars)
-    for d in data:
-        lst = d.split(',')
-        l = tok.decode(lst)
-        if l is not None:
-            out.append(l)
-    return out
-
-
-def select_best(n, data):
-    """
-    Select the n-best data shuffled
-    """
-    to_shuff = data.copy()
-    if len(data) <= n:
-        return data
-    to_shuff.sort(key=lambda x: x.score, reverse=True) # sort method returns None
-    to_shuff = to_shuff[:n]
-    random.shuffle(to_shuff)
-    return to_shuff
-
-#def encode(d,base=10, reverse=False) -> list[str]:
-#    """
-#    Encode the data as a list of tokens containing the ap and the value of the discriminant
-#    """
-#    return d.encode(base=base,reverse=reverse)
-
-
-#def decode(lst, args, classname, base=10, reverse=False)-> Optional[Any]:
-#    """
-#    Decode a list of tokens to return a DataPoint classname with the corresponding discriminant. Note: only reads the determinant and do not return the ap
-#    """
-#    return classname(args.val,args).decode(lst,base=base,reverse=reverse)
 
 def detokenize(data):
     res = []
@@ -249,7 +113,7 @@ def detokenize(data):
             start = end
         with ProcessPoolExecutor(max_workers=min(20, args.num_workers)) as executor:
             # map returns lists; stream them to avoid a giant materialization
-            for chunk in executor.map(_detokenize, data_slices, repeat(env.tokenizer,len(data_slices)),repeat(pars, len(data_slices))):
+            for chunk in executor.map(env.tokenizer.decode_batch, data_slices,repeat(pars, len(data_slices))):
                 if chunk:  # extend incrementally to manage memory
                     res.extend(chunk)
     else:
@@ -260,14 +124,6 @@ def detokenize(data):
                 continue
             res.append(l)
     return res
-
-def make_train_test(data,ntest):
-    """
-    Create a train and test dataset from a dataset.
-    """
-    indices = np.random.permutation(len(data))
-    rp = [data[i] for i in indices]
-    return rp[:-ntest], rp[-ntest:]
 
 def train(model, loader, optim, test_dataset):
     # training loop
@@ -322,7 +178,7 @@ def train(model, loader, optim, test_dataset):
     elif args.device == "mps":
         logger.info(f"Memory allocated:  {torch.mps.current_allocated_memory()/(1024*1024):.2f}MB, reserved: {torch.mps.driver_allocated_memory()/(1024*1024):.2f}MB")
 
-def generate_sample(model, train_dataset):
+def sample(model, train_dataset):
     new_words = []
 
     sample_batch_size =args.gen_batch_size # reduce this if GPU crashes, increase it if sampling is slow
@@ -343,7 +199,7 @@ def generate_sample(model, train_dataset):
             row = row[:crop_index]
             word_samp = train_dataset.decode(row)
             new_words.append(word_samp)
-    return new_words
+    return detokenize(new_words)
 
 
 if __name__ == '__main__':
@@ -377,27 +233,16 @@ if __name__ == '__main__':
     print(env.data_class.N, 'sdp')
     print(classname.N, 'sdp')
     
-    #if classname == TriangleDataPoint and args.base == -1:
-    #    args.base = args.triangle_N * (args.triangle_N - 1) // 2
-    #if classname == SquareDataPoint and args.base == -1:
-    #    args.base = args.square_N * (args.square_N - 1) // 2
     # system inits
     torch.manual_seed(args.seed)
-    # os.makedirs(args.work_dir, exist_ok=True)
 
-    #symbols = [str(i) for i in range(max(args.base,3))]
-    #env.symbols.extend(args.symbols.split(","))
     args.vocab_size = len(env.symbols) + 1
     args.block_size = args.max_len
-
-    #Initialize class to be adressed
 
     #Initialize transformer
     model = Transformer(args)
     model.to(args.device)
     model_path = os.path.join(args.dump_path, "model.pt")
-    train_data_path = os.path.join(args.dump_path, "train_data.pkl")
-    test_data_path = os.path.join(args.dump_path, "test_data.pkl")
     if os.path.isfile(model_path): 
         logger.info("resuming from existing model")
 
@@ -411,19 +256,9 @@ if __name__ == '__main__':
             model.load_state_dict(reloaded["state_dict"])
         else:
             model.load_state_dict(reloaded)
-    if os.path.isfile(train_data_path):
-        logger.info("resuming from existing data")
-        train_set = pickle.load(open(train_data_path, "rb"))
-        test_set = pickle.load(open(test_data_path, "rb"))
-    else:
-        data = generate_and_score(args,classname=classname)
-        data = select_best(args.pop_size, data)
-    
-        #Create datasets
-        train_set, test_set = make_train_test(data, args.ntest)
-        logger.info(f"Initial train and test generated. Size are train: {len(train_set)}, test {len(test_set)}")
-        pickle.dump(train_set, open(train_data_path, "wb"))
-        pickle.dump(test_set, open(test_data_path, "wb"))
+    train_set, test_set = load_initial_data(args, classname)
+    train_data_path = os.path.join(args.dump_path, "train_data.pkl")
+    test_data_path = os.path.join(args.dump_path, "test_data.pkl")
 
     #log initial stats
     do_stats(-1,data=train_set)
@@ -445,30 +280,17 @@ if __name__ == '__main__':
         elif args.device == "mps":
             logger.info(f"Memory allocated:  {torch.mps.current_allocated_memory()/(1024*1024):.2f}MB, reserved: {torch.mps.driver_allocated_memory()/(1024*1024):.2f}MB")
         optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay, betas=(0.9, 0.99), eps=1e-8, fused=True)
+        
         batch_loader = InfiniteDataLoader(train_dataset, batch_size=args.batch_size, pin_memory=True, num_workers=args.num_workers)
-
         train(model, batch_loader,optimizer, test_dataset)
 
-        new_words = generate_sample(model, train_dataset)
-        logger.info(f"New words generated length is {len(new_words)}")
-
-        # decode 
-        new_data = detokenize(new_words)
+        new_data = sample(model, train_dataset) # should the token decoider be in the dataset?
         logger.info(f"New data detokenized length is {len(new_data)}")
 
         new_data = do_score(new_data,process_pool=args.process_pool,num_workers=args.num_workers,always_search=args.always_search)
 
         #Possible to add another generation method here and mix it before taking the best
-
-        new_data = select_best(args.pop_size, new_data)
-
-        new_train, test_set = make_train_test(new_data, args.ntest)
-        logger.info(f"New train and test generated. Size are train: {len(new_train)}, test {len(test_set)}")
-        #Get all examples of previous train and current train and then select best.
-        train_set = select_best(args.pop_size, train_set + new_train)
-    
-        pickle.dump(test_set, open(test_data_path, "wb"))
-        pickle.dump(train_set, open(train_data_path, "wb"))
+        train_set, test_set = update_datasets(args, new_data, train_set, train_data_path, test_data_path)
     
         n_epoch += 1
 

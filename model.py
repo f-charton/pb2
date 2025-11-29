@@ -21,7 +21,6 @@ import datetime
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from torch.utils.data import Dataset
 from torch.utils.data.dataloader import DataLoader
 
 from logging import getLogger
@@ -247,37 +246,6 @@ def print_samples(args,model,train_dataset,num=10):
         print(word)
     print('-'*80)
 
-def write_samples(args,model,train_dataset,num=10, new_file=False, use_logger=False):
-    """ samples from the model and pretty prints the decoded samples """
-    X_init = torch.zeros(num, 1, dtype=torch.long).to(args.device)
-    top_k = args.top_k if args.top_k != -1 else None
-    steps = train_dataset.get_output_length() - 1 # -1 because we already start with <START> token (index 0)
-    X_samp = generate(model, X_init, steps, top_k=top_k, do_sample=True).to('cpu')
-    samples = []
-#    train_samples, test_samples, new_samples = [], [], []
-    for i in range(X_samp.size(0)):
-        # get the i'th row of sampled integers, as python list
-        row = X_samp[i, 1:].tolist() # note: we need to crop out the first <START> token
-        # token 0 is the <STOP> token, so we crop the output sequence at that point
-        crop_index = row.index(0) if 0 in row else len(row)
-        row = row[:crop_index]
-        word_samp = train_dataset.decode(row)
-        samples.append(word_samp)
-    out_file = args.work_dir + "/out.txt"
-    if use_logger:
-        logger.info(f"Printing {len(samples)} samples to {out_file}.")
-    else: 
-        print(f"Printing {len(samples)} samples to {out_file}.")
-    if not new_file:
-        with open(out_file, "a") as file:
-            for word in samples:
-                file.write(word)
-                file.write("\n")
-    else:
-        with open(out_file, "w") as file:
-            for word in samples:
-                file.write(word)
-                file.write("\n")
     
 @torch.inference_mode()
 def evaluate(model, dataset, device, batch_size=50, max_batches=None):
@@ -318,65 +286,3 @@ def logprobs(args,model,dataset):
     return logprobs_out
 
 # -----------------------------------------------------------------------------
-# helper functions for creating the training and test Datasets
-
-
-class CharDataset(Dataset):
-
-    def __init__(self, words, chars, max_word_length):
-        self.words = words
-        self.chars = chars
-        self.max_word_length = max_word_length
-        self.stoi = {ch:i+1 for i,ch in enumerate(self.chars)} # bijection 'V13' <-> 13
-        self.itos = {i:s for s,i in self.stoi.items()} # inverse mapping: 13 -> 'V13'
-
-    def __len__(self):
-        return len(self.words)
-
-    def contains(self, word):
-        return word in self.words
-
-    def get_vocab_size(self):
-        return len(self.chars) + 1 # all the possible characters and special 0 token
-
-    def get_output_length(self):
-        return self.max_word_length + 1 # <START> token followed by words
-
-    def encode(self, word):
-        ix = torch.tensor([self.stoi[w] for w in word], dtype=torch.long)
-        return ix
-
-    def decode(self, ix):
-        word = ','.join(self.itos[i] for i in ix)
-        return word
-
-    def __getitem__(self, idx):
-        word = self.words[idx]
-        ix = self.encode(word)
-        x = torch.zeros(self.max_word_length + 1, dtype=torch.long)
-        y = torch.zeros(self.max_word_length + 1, dtype=torch.long)
-        x[1:1+len(ix)] = ix
-        y[:len(ix)] = ix
-        y[len(ix)+1:] = -1 # index -1 will mask the loss at the inactive locations
-        return x, y
-
-# -----------------------------------------------------------------------------
-
-class InfiniteDataLoader:
-    """
-    this is really hacky and I'm not proud of it, but there doesn't seem to be
-    a better way in PyTorch to just create an infinite dataloader?
-    """
-
-    def __init__(self, dataset, **kwargs):
-        train_sampler = torch.utils.data.RandomSampler(dataset, replacement=True, num_samples=int(1e10))
-        self.train_loader = DataLoader(dataset, sampler=train_sampler, **kwargs)
-        self.data_iter = iter(self.train_loader)
-
-    def next(self):
-        try:
-            batch = next(self.data_iter)
-        except StopIteration: # this will technically only happen after 1e10 samples... (i.e. basically never)
-            self.data_iter = iter(self.train_loader)
-            batch = next(self.data_iter)
-        return batch

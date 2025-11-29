@@ -29,7 +29,23 @@ class DataPoint(ABC):
         self.calc_features()
         self.calc_scores()
         return self if self.score >=0 else None
-    
+
+    @classmethod
+    def _update_class_params(self,pars):
+        return
+
+    @classmethod
+    def _batch_generate_and_score(cls,n, pars=None):
+        out = []
+        if pars is not None:
+            cls._update_class_params(pars)
+        for _ in range(n):
+            d = cls()
+            if d.score >=0:
+                out.append(d)
+        return out 
+
+
     
 class BaseEnvironment(object):
     data_class = None

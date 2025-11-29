@@ -318,6 +318,4 @@ class ThreeRankEnvironment(BaseEnvironment):
         GroupClass.base = params.base
         self.symbols = [str(i) for i in range(max(params.base,3))]
       
-    #def generate_data(self, size):
-
-    #def do_score(self)
+   
