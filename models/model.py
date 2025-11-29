@@ -21,7 +21,6 @@ import datetime
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from torch.utils.data import Dataset
 from torch.utils.data.dataloader import DataLoader
 
 from logging import getLogger
@@ -31,16 +30,6 @@ os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 logger=getLogger()
 # -----------------------------------------------------------------------------
 
-@dataclass
-class ModelConfig:
-    block_size: int = None # length of the input sequences of integers
-    vocab_size: int = None # the input integers are in range [0 .. vocab_size -1]
-    # parameters below control the sizes of each model slightly differently
-    n_layer: int = 4
-    n_embd: int = 64
-    n_head: int = 4
-
-# -----------------------------------------------------------------------------
 # Transformer Language Model (*exactly* as used in GPT-2)
 
 class NewGELU(nn.Module):
@@ -71,25 +60,33 @@ class CausalSelfAttention(nn.Module):
         self.n_head = config.n_head
         self.n_embd = config.n_embd
 
-    def forward(self, x):
+    def forward(self, x, past_kv=None):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
-        q, k ,v  = self.c_attn(x).split(self.n_embd, dim=2)
+        q, k, v = self.c_attn(x).split(self.n_embd, dim=2)
         k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
 
-        # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
-        att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-        att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
-        att = F.softmax(att, dim=-1)
-        y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+        if past_kv is not None:
+            past_k, past_v = past_kv
+            k = torch.cat((past_k, k), dim=2)
+            v = torch.cat((past_v, v), dim=2)
+
+        present_kv = (k, v)
+
+        if past_kv is None:
+            y = F.scaled_dot_product_attention(q, k, v, attn_mask=None, is_causal=True)
+        else:
+            causal_mask = (1.0 - self.bias[:, :, k.size(-2) - q.size(-2) : k.size(-2), :k.size(-2)]).to(q.device)
+            causal_mask = causal_mask * torch.finfo(q.dtype).min
+            y = F.scaled_dot_product_attention(q, k, v, attn_mask=causal_mask, is_causal=False)
         y = y.transpose(1, 2).contiguous().view(B, T, C) # re-assemble all head outputs side by side
 
         # output projection
         y = self.c_proj(y)
-        return y
+        return y, present_kv
 
 class Block(nn.Module):
     """ an unassuming Transformer block """
@@ -107,10 +104,11 @@ class Block(nn.Module):
         m = self.mlp
         self.mlpf = lambda x: m.c_proj(m.act(m.c_fc(x))) # MLP forward
 
-    def forward(self, x):
-        x = x + self.attn(self.ln_1(x))
+    def forward(self, x, past_kv=None):
+        attn_out, present_kv = self.attn(self.ln_1(x), past_kv=past_kv)
+        x = x + attn_out
         x = x + self.mlpf(self.ln_2(x))
-        return x
+        return x, present_kv
 
 class Transformer(nn.Module):
     """ Transformer Language Model, exactly as seen in GPT-2 """
@@ -134,18 +132,29 @@ class Transformer(nn.Module):
     def get_block_size(self):
         return self.block_size
 
-    def forward(self, idx, targets=None):
+    def forward(self, idx, targets=None, past_kv=None):
         device = idx.device
         b, t = idx.size()
         assert t <= self.block_size, f"Cannot forward sequence of length {t}, block size is only {self.block_size}"
-        pos = torch.arange(0, t, dtype=torch.long, device=device).unsqueeze(0) # shape (1, t)
+
+        # figure out positional offset if we're continuing generation
+        past_len = 0
+        if past_kv is not None and len(past_kv) > 0 and past_kv[0] is not None:
+            past_len = past_kv[0][0].size(2)
+
+        pos = torch.arange(past_len, past_len + t, dtype=torch.long, device=device).unsqueeze(0) # shape (1, t)
 
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (1, t, n_embd)
         x = tok_emb + pos_emb
-        for block in self.transformer.h:
-            x = block(x)
+
+        presents_kv = []
+        for i, block in enumerate(self.transformer.h):
+            pkv = None if past_kv is None else past_kv[i]
+            x, present_kv = block(x, past_kv=pkv)
+            presents_kv.append(present_kv)
+
         x = self.transformer.ln_f(x)
         logits = self.lm_head(x)
 
@@ -154,7 +163,7 @@ class Transformer(nn.Module):
         if targets is not None:
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
 
-        return logits, loss
+        return logits, loss, presents_kv
 
 # -----------------------------------------------------------------------------
 # helper functions for evaluating and sampling from the model
@@ -166,18 +175,33 @@ def generate(model, idx, max_new_tokens, temperature=1.0, do_sample=False, top_k
     the sequence max_new_tokens times, feeding the predictions back into the model each time.
     Most likely you'll want to make sure to be in model.eval() mode of operation for this.
     """
+    model.eval()
     block_size = model.get_block_size()
-    for _ in range(max_new_tokens):
+    B = idx.size(0)
+
+    past_kv = None
+
+    for i in range(max_new_tokens):
+        if i == 0 or past_kv is None:
+            idx_cond = idx
+        else:
+            idx_cond = idx[:, -1].unsqueeze(1)
         # if the sequence context is growing too long we must crop it at block_size
-        idx_cond = idx if idx.size(1) <= block_size else idx[:, -block_size:]
+        idx_cond = idx_cond if idx_cond.size(1) <= block_size else idx_cond[:, -block_size:]
         # forward the model to get the logits for the index in the sequence
-        logits, _ = model(idx_cond)
+        logits, _, presents = model(idx_cond, past_kv=past_kv)
+        past_kv = presents
+        for n_layer in range(len(past_kv)):
+            k_l, v_l = past_kv[n_layer]
+            if k_l.size(2) > block_size:
+                past_kv[n_layer] = (k_l[:, :, -block_size:, :], v_l[:, :, -block_size:, :])
+
         # pluck the logits at the final step and scale by desired temperature
         logits = logits[:, -1, :] / temperature
         # optionally crop the logits to only the top k options
         if top_k is not None:
             v, _ = torch.topk(logits, top_k)
-            logits[logits < v[:, [-1]]] = -float('Inf')
+            logits[logits < v[:, [-1]]] = -float('inf')
         # apply softmax to convert logits to (normalized) probabilities
         probs = F.softmax(logits, dim=-1)
         # either sample from the distribution or take the most likely element
@@ -190,7 +214,7 @@ def generate(model, idx, max_new_tokens, temperature=1.0, do_sample=False, top_k
 
     return idx
 
-def print_samples(num=10):
+def print_samples(args,model,train_dataset,num=10):
     """ samples from the model and pretty prints the decoded samples """
     X_init = torch.zeros(num, 1, dtype=torch.long).to(args.device)
     top_k = args.top_k if args.top_k != -1 else None
@@ -212,37 +236,6 @@ def print_samples(num=10):
         print(word)
     print('-'*80)
 
-def write_samples(num=10, new_file=False, use_logger=False):
-    """ samples from the model and pretty prints the decoded samples """
-    X_init = torch.zeros(num, 1, dtype=torch.long).to(args.device)
-    top_k = args.top_k if args.top_k != -1 else None
-    steps = train_dataset.get_output_length() - 1 # -1 because we already start with <START> token (index 0)
-    X_samp = generate(model, X_init, steps, top_k=top_k, do_sample=True).to('cpu')
-    samples = []
-#    train_samples, test_samples, new_samples = [], [], []
-    for i in range(X_samp.size(0)):
-        # get the i'th row of sampled integers, as python list
-        row = X_samp[i, 1:].tolist() # note: we need to crop out the first <START> token
-        # token 0 is the <STOP> token, so we crop the output sequence at that point
-        crop_index = row.index(0) if 0 in row else len(row)
-        row = row[:crop_index]
-        word_samp = train_dataset.decode(row)
-        samples.append(word_samp)
-    out_file = args.work_dir + "/out.txt"
-    if use_logger:
-        logger.info(f"Printing {len(samples)} samples to {out_file}.")
-    else: 
-        print(f"Printing {len(samples)} samples to {out_file}.")
-    if not new_file:
-        with open(out_file, "a") as file:
-            for word in samples:
-                file.write(word)
-                file.write("\n")
-    else:
-        with open(out_file, "w") as file:
-            for word in samples:
-                file.write(word)
-                file.write("\n")
     
 @torch.inference_mode()
 def evaluate(model, dataset, device, batch_size=50, max_batches=None):
@@ -252,7 +245,7 @@ def evaluate(model, dataset, device, batch_size=50, max_batches=None):
     for i, batch in enumerate(loader):
         batch = [t.to(device) for t in batch]
         X, Y = batch
-        logits, loss = model(X, Y)
+        logits, loss, _ = model(X, Y)
         losses.append(loss.item())
         if max_batches is not None and i >= max_batches:
             break
@@ -260,7 +253,7 @@ def evaluate(model, dataset, device, batch_size=50, max_batches=None):
     model.train() # reset model back to training mode
     return mean_loss
 
-def logprobs(dataset):
+def logprobs(args,model,dataset):
     """Return the log of the probability that the model will generate a given sequence.
     
     Note: What we actually calculate is the probability given a sequence (A,B,..,X) that the
@@ -269,7 +262,7 @@ def logprobs(dataset):
     """
 
     encoded_words = torch.stack(tuple([dataset[i][0] for i in range(len(dataset))])).to(args.device)
-    logits, _ =model(encoded_words)
+    logits, _, _ = model(encoded_words)
     logits = logits.to('cpu')
     probs = F.softmax(logits, dim=-1).detach().numpy() # a tensor of shape (len(dataset), block_size, #tokens+1)
 
@@ -283,66 +276,3 @@ def logprobs(dataset):
     return logprobs_out
 
 # -----------------------------------------------------------------------------
-# helper functions for creating the training and test Datasets
-
-
-class CharDataset(Dataset):
-
-    def __init__(self, words, chars, max_word_length):
-        self.words = words
-        self.chars = chars
-        self.max_word_length = max_word_length
-        self.stoi = {ch:i+1 for i,ch in enumerate(self.chars)} # bijection 'V13' <-> 13
-        self.itos = {i:s for s,i in self.stoi.items()} # inverse mapping: 13 -> 'V13'
-
-    def __len__(self):
-        return len(self.words)
-
-    def contains(self, word):
-        return word in self.words
-
-    def get_vocab_size(self):
-        return len(self.chars) + 1 # all the possible characters and special 0 token
-
-    def get_output_length(self):
-        return self.max_word_length + 1 # <START> token followed by words
-
-    def encode(self, word):
-        ix = torch.tensor([self.stoi[w] for w in word], dtype=torch.long)
-        return ix
-
-    def decode(self, ix):
-        word = ','.join(self.itos[i] for i in ix)
-        return word
-
-    def __getitem__(self, idx):
-        word = self.words[idx]
-        ix = self.encode(word)
-        x = torch.zeros(self.max_word_length + 1, dtype=torch.long)
-        y = torch.zeros(self.max_word_length + 1, dtype=torch.long)
-        x[1:1+len(ix)] = ix
-        y[:len(ix)] = ix
-        y[len(ix)+1:] = -1 # index -1 will mask the loss at the inactive locations
-        return x, y
-
-# -----------------------------------------------------------------------------
-
-class InfiniteDataLoader:
-    """
-    this is really hacky and I'm not proud of it, but there doesn't seem to be
-    a better way in PyTorch to just create an infinite dataloader?
-    """
-
-    def __init__(self, dataset, **kwargs):
-        train_sampler = torch.utils.data.RandomSampler(dataset, replacement=True, num_samples=int(1e10))
-        self.train_loader = DataLoader(dataset, sampler=train_sampler, **kwargs)
-        self.data_iter = iter(self.train_loader)
-
-    def next(self):
-        try:
-            batch = next(self.data_iter)
-        except StopIteration: # this will technically only happen after 1e10 samples... (i.e. basically never)
-            self.data_iter = iter(self.train_loader)
-            batch = next(self.data_iter)
-        return batch
-

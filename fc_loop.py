@@ -12,7 +12,7 @@ from envs import ENVS, build_env
 import torch
 from typing import Any, List, Optional
 
-from model import  Transformer, evaluate, generate
+from models.model import  Transformer, evaluate, generate
 from datasets import CharDataset, InfiniteDataLoader, load_initial_data, update_datasets
 import os
 import argparse
