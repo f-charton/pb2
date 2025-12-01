@@ -49,6 +49,7 @@ class DataPoint(ABC):
     
 class BaseEnvironment(object):
     data_class = None
+    SPECIAL_SYMBOLS = ["SEP","EOS","PAD","BOS"]
 
     def __init__(self, params):
         self.symbols = []

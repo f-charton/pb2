@@ -181,7 +181,7 @@ class TriangleEnvironment(BaseEnvironment):
             self.tokenizer = DenseTokenizer(params.triangle_N, TriangleDataPoint)
             self.symbols = [str(i) for i in range(3)]
 
-        self.symbols.extend(params.symbols.split(","))
+        self.symbols.extend(BaseEnvironment.SPECIAL_SYMBOLS)
 
     @staticmethod
     def register_args(parser):

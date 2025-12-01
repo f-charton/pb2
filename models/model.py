@@ -83,7 +83,7 @@ class Block(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, config, pad_token_id):
+    def __init__(self, config, pad_token_id, eos_token_id):
         super().__init__()
         self.block_size = config.block_size
         self.transformer = nn.ModuleDict(
@@ -105,6 +105,7 @@ class Transformer(nn.Module):
         n_params = sum(p.numel() for p in self.parameters())
         print(f"number of parameters: {n_params/1e6:.2f}M")
         self.pad_token_id = pad_token_id
+        self.eos_token_id = eos_token_id
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
@@ -146,16 +147,16 @@ class Transformer(nn.Module):
         return logits, loss, presents_kv
 
     @torch.no_grad()
-    def generate(self, idx, max_new_tokens, temperature=1.0, do_sample=False, top_k=None, eos_token_id=None, pad_token_id=None):
+    def generate(self, idx, max_new_tokens, temperature=1.0, do_sample=False, top_k=None):
         self.eval()
 
         past_kv = None
         for i in range(max_new_tokens):
             last_tokens = idx[:, -1].unsqueeze(-1)
-            finished_mask = torch.zeros_like(last_tokens, dtype=torch.bool) | (last_tokens == eos_token_id) | (last_tokens == pad_token_id)
+            finished_mask = torch.zeros_like(last_tokens, dtype=torch.bool) | (last_tokens == self.eos_token_id) | (last_tokens == self.pad_token_id)
 
             if torch.all(finished_mask):
-                idx_next = torch.full_like(finished_mask, pad_token_id, dtype=torch.long)
+                idx_next = torch.full_like(finished_mask, self.pad_token_id, dtype=torch.long)
             else:
                 if i == 0 or past_kv is None:
                     idx_cond = idx
@@ -171,7 +172,7 @@ class Transformer(nn.Module):
                     idx_next = torch.multinomial(probs, num_samples=1)
                 else:
                     _, idx_next = torch.topk(probs, k=1, dim=-1)
-                idx_next = torch.where(finished_mask, pad_token_id, idx_next)
+                idx_next = torch.where(finished_mask, self.pad_token_id, idx_next)
 
             idx = torch.cat((idx, idx_next), dim=1)
 

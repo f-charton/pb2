@@ -140,9 +140,8 @@ class SquareEnvironment(BaseEnvironment):
         else:
             raise ValueError(f"Invalid encoding: {params.encoding_tokens}")
 
-        self.symbols.extend(params.symbols.split(","))
-        
-    #def generate_data(self, size):
+        self.symbols.extend(BaseEnvironment.SPECIAL_SYMBOLS)
+
     @staticmethod
     def register_args(parser):
         """

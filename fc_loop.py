@@ -35,9 +35,6 @@ def get_parser():
 
     #Generation arguments
 
-    ### ADD HERE THE PARAMETERS SPECIFIC TO YOUR PROBLEM ###
-
-    parser.add_argument('--symbols', type=str, default="SEP,EOS,PAD,BOS", help="symbols specific to the problem, separated by ',' ")
 
     # Makemore params
     parser.add_argument('--num_workers', type=int, default=4, help="number of data workers for both train/test")
@@ -147,7 +144,6 @@ def train(model, args, loader, optim, test_dataset, current_best_loss=None):
 
 def sample(model, args, stoi, itos, env):
     eos_token_id = stoi["EOS"]
-    pad_token_id = stoi["PAD"]
     bos_token_id = stoi["BOS"]
 
     new_words = []
@@ -160,7 +156,7 @@ def sample(model, args, stoi, itos, env):
     
         X_init = torch.full((sample_batch_size, 1), bos_token_id, dtype=torch.long).to(args.device)
         top_k = args.top_k if args.top_k != -1 else None
-        X_samp = model.generate(X_init, args.max_len + 1, temperature = args.temperature, top_k=top_k, do_sample=True, eos_token_id=eos_token_id, pad_token_id=pad_token_id).to('cpu')
+        X_samp = model.generate(X_init, args.max_len + 1, temperature = args.temperature, top_k=top_k, do_sample=True).to('cpu')
         
         for j in range(X_samp.size(0)):
             row = X_samp[j, 1:].tolist() # remove BOS token
@@ -211,7 +207,7 @@ if __name__ == '__main__':
     itos = {i: ch for ch, i in stoi.items()}
 
     #Initialize transformer
-    model = Transformer(args, stoi["PAD"])
+    model = Transformer(args, stoi["PAD"],stoi["EOS"])
     model.to(args.device)
     model_path = os.path.join(args.dump_path, "model.pt")
     optimizer_path = os.path.join(args.dump_path, "optimizer.pt")
@@ -219,20 +215,16 @@ if __name__ == '__main__':
         logger.info("resuming from existing model")
         if args.device == "cuda":
             reloaded = torch.load(model_path)
-        elif args.device == "mps":
-            reloaded = torch.load(model_path, map_location=torch.device('mps'))
         else:
-            reloaded = torch.load(model_path, map_location=torch.device('cpu'))
+            reloaded = torch.load(model_path, map_location=torch.device(args.device))
         model.load_state_dict(reloaded)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay, betas=(0.9, 0.99), eps=1e-8, fused=True)
     if os.path.isfile(optimizer_path):
         print("resuming from existing optimizer")
         if args.device == "cuda":
             reloaded = torch.load(optimizer_path)
-        elif args.device == "mps":
-            reloaded = torch.load(optimizer_path, map_location=torch.device("mps"))
         else:
-            reloaded = torch.load(optimizer_path, map_location=torch.device("cpu"))
+            reloaded = torch.load(optimizer_path, map_location=torch.device(args.device))
         optimizer.load_state_dict(reloaded)
     
     train_set, test_set = load_initial_data(args, classname)
