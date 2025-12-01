@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor
+import math
 #from .square import SquareDataPoint
 
 class Tokenizer(ABC):
@@ -17,7 +18,22 @@ class Tokenizer(ABC):
     @abstractmethod
     def decode(self, lst):
         pass
-    
+
+    def _edge_to_index(self, N, i, j):
+        return i * (2 * N - i - 1) // 2 + (j - i - 1)
+
+    def _index_to_edge(self, N, idx):
+        discriminant = (2 * N - 1) ** 2 - 8 * idx
+        if discriminant < 0:
+            i = N - 2
+        else:
+            i = int((2 * N - 1 - math.sqrt(discriminant)) // 2)
+            i = max(0, min(i, N - 2))
+
+        Sx = i * (2 * N - i - 1) // 2
+        j = i + 1 + idx - Sx
+        return (i, j)
+
     def decode_batch(self, data, pars=None):
         """
         Worker function for detokenizing a batch of data
@@ -25,8 +41,7 @@ class Tokenizer(ABC):
         out = []
         if pars is not None:
             self.dataclass._update_class_params(pars)
-        for d in data:
-            lst = d.split(',')
+        for lst in data:
             l = self.decode(lst)
             if l is not None:
                 out.append(l)
@@ -40,23 +55,29 @@ class SparseTokenizer(Tokenizer):
         self.dataclass = dataclass
 
     def encode(self, graph):
-        w = list(map(str, graph.val))
-        w.append("|")
+        w = []
+        for i in range(self.N):
+            for j in range(i+1, self.N):
+                if graph.matrix[i, j] == 1:
+                    w.append(str(self._edge_to_index(self.N, i, j)))
+        w.append("EOS")
         return w
     
     def decode(self, lst):
         """Decode a list of tokens to return a SquareDataPoint"""
+        graph = self.dataclass()
         for i, el in enumerate(lst):
-            if el == "|":
+            if el == "EOS":
                 lst = lst[:i]
                 break
         try:
-            result = list(map(int, lst))
+            for el in lst:
+                i, j = self._index_to_edge(self.N, int(el))
+                graph.matrix[i, j] = 1
+                graph.matrix[j, i] = 1
         except ValueError as e:
-            # need to check bounds, too
-            print(f"Value error in the generation {e}")
             return None
-        return self.dataclass(result)
+        return graph
 
     # stupid but needed to please PoolExectutor
     def decode_batch(self, data, pars=None):
@@ -67,24 +88,20 @@ class DenseTokenizer(Tokenizer):
         self.N = N
         self.dataclass =  dataclass
 
-    def _edge_to_index(self, i: int, j: int) -> int:
-        """Convert edge (i,j) to linear index in upper triangular matrix"""
-        return i * (2 * self.N - i - 1) // 2 + (j - i - 1)
-
     def encode(self, graph):
         w = []
         for i in range(self.N):
             for j in range(i + 1, self.N):
                 w.append(str(graph.matrix[i, j]))
-            w.append("&")
-        w.append("|")
+            w.append("SEP")
+        w.append("EOS")
         return w
 
     def decode(self, lst):
         """Decode a list of tokens to return a SquareDataPoint"""
-        result = []
+        graph = self.dataclass()
         for i, el in enumerate(lst):
-            if el == "|":
+            if el == "EOS":
                 lst = lst[:i]
                 break
         try:
@@ -93,29 +110,26 @@ class DenseTokenizer(Tokenizer):
             expected_count = self.N - 1
             count = 0
             for el in lst:
-                if el == "&":
-                    if count == expected_count:
-                        # Move to next row
-                        idx += 1
-                        jdx = idx + 1
-                        expected_count = self.N - idx - 1
-                        count = 0
-                    else:
+                if el == "SEP":
+                    if count != expected_count:
                         return None
-                elif jdx < self.N:
-                    if el == "1":
-                        result.append(self._edge_to_index(idx, jdx))
+                    idx += 1
+                    jdx = idx + 1
+                    expected_count = self.N - idx - 1
+                    count = 0
+                elif jdx >= self.N:
+                    return None
+                else:
+                    graph.matrix[idx, jdx] = int(el)
+                    graph.matrix[jdx, idx] = int(el)
                     jdx += 1
                     count += 1
-                else:
-                    return None
             if idx != self.N or count != 0:
                 return None
-        except (ValueError, IndexError) as e:
-            print(f"Value error in the generation {e}")
+        except ValueError as e:
             return None
-            
-        return self.dataclass(result)
+
+        return graph            
 
     # stupid but needed to please PoolExectutor
     def decode_batch(self, data, pars=None):

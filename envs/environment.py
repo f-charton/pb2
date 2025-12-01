@@ -40,7 +40,7 @@ class DataPoint(ABC):
         if pars is not None:
             cls._update_class_params(pars)
         for _ in range(n):
-            d = cls()
+            d = cls(init=True)
             if d.score >=0:
                 out.append(d)
         return out 

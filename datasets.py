@@ -19,7 +19,7 @@ def generate_and_score(args, classname):
     Generation method if no data
     """
     data = []
-    BATCH = getattr(args, "gen_batch_size", 10000)
+    BATCH = args.gen_batch_size
     batch_counts = [BATCH] * (args.gensize // BATCH)
     rem = args.gensize % BATCH
     if rem:
@@ -37,7 +37,6 @@ def generate_and_score(args, classname):
             d = classname._batch_generate_and_score(t)
             if d is not None:
                 data.extend(d)
-    print("HERE some data",[el.val for el in data[:5]])
     return data
 
 def select_best(n, data):
@@ -91,42 +90,33 @@ def load_initial_data(args, classname):
 
 
 class CharDataset(Dataset):
-
-    def __init__(self, words, chars, max_word_length):
-        self.words = words
+    def __init__(self, encoded_data, chars, max_len, stoi):
+        self.encoded_data = encoded_data
         self.chars = chars
-        self.max_word_length = max_word_length
-        self.stoi = {ch:i+1 for i,ch in enumerate(self.chars)} # bijection 'V13' <-> 13
-        self.itos = {i:s for s,i in self.stoi.items()} # inverse mapping: 13 -> 'V13'
+        self.max_len = max_len
+        self.bos_token_id = stoi["BOS"]
+        self.eos_token_id = stoi["EOS"]
+        self.pad_token_id = stoi["PAD"]
 
     def __len__(self):
-        return len(self.words)
-
-    def contains(self, word):
-        return word in self.words
-
-    def get_vocab_size(self):
-        return len(self.chars) + 1 # all the possible characters and special 0 token
-
-    def get_output_length(self):
-        return self.max_word_length + 1 # <START> token followed by words
-
-    def encode(self, word):
-        ix = torch.tensor([self.stoi[w] for w in word], dtype=torch.long)
-        return ix
-
-    def decode(self, ix):
-        word = ','.join(self.itos[i] for i in ix)
-        return word
+        return len(self.encoded_data)
 
     def __getitem__(self, idx):
-        word = self.words[idx]
-        ix = self.encode(word)
-        x = torch.zeros(self.max_word_length + 1, dtype=torch.long)
-        y = torch.zeros(self.max_word_length + 1, dtype=torch.long)
-        x[1:1+len(ix)] = ix
-        y[:len(ix)] = ix
-        y[len(ix)+1:] = -1 # index -1 will mask the loss at the inactive locations
+        return self.encoded_data[idx]
+
+    def collate_fn(self, batch):
+        x = torch.full((len(batch), self.max_len + 2), self.pad_token_id, dtype=torch.long)
+        y = torch.full((len(batch), self.max_len + 2), self.pad_token_id, dtype=torch.long)
+        x[:, 0] = self.bos_token_id
+        for i, ix in enumerate(batch):
+            x[i, 1 : len(ix) + 1] = ix
+            y[i, : len(ix)] = ix
+            x[i, len(ix) + 1] = self.eos_token_id
+            y[i, len(ix)] = self.eos_token_id
+        valid_col = (x != self.pad_token_id).any(dim=0)
+        last_col = valid_col.nonzero(as_tuple=False)[-1].item() + 1
+        x = x[:, :last_col]
+        y = y[:, :last_col]
         return x, y
 
 # -----------------------------------------------------------------------------
@@ -139,13 +129,13 @@ class InfiniteDataLoader:
 
     def __init__(self, dataset, **kwargs):
         train_sampler = torch.utils.data.RandomSampler(dataset, replacement=True, num_samples=int(1e10))
-        self.train_loader = DataLoader(dataset, sampler=train_sampler, **kwargs)
+        self.train_loader = DataLoader(dataset, sampler=train_sampler, collate_fn=dataset.collate_fn, **kwargs)
         self.data_iter = iter(self.train_loader)
 
     def next(self):
         try:
             batch = next(self.data_iter)
-        except StopIteration: # this will technically only happen after 1e10 samples... (i.e. basically never)
+        except StopIteration:  # this will technically only happen after 1e10 samples... (i.e. basically never)
             self.data_iter = iter(self.train_loader)
             batch = next(self.data_iter)
         return batch

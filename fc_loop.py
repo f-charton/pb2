@@ -6,13 +6,10 @@ import numpy as np
 import time
 import torch
 from envs.environment import do_score, do_stats
-from itertools import repeat, chain
+from itertools import repeat
 from envs import ENVS, build_env
 
-import torch
-from typing import Any, List, Optional
-
-from models.model import  Transformer, evaluate, generate
+from models.model import  Transformer, evaluate
 from datasets import CharDataset, InfiniteDataLoader, load_initial_data, update_datasets
 import os
 import argparse
@@ -23,19 +20,15 @@ logger = getLogger()
 def get_parser():
     parser = argparse.ArgumentParser('A simple PatternBoost loop for different maths problems')
     
-    parser.add_argument('--sample_only', type=int, default=500000, help="sample the specified number from the model in each loop")
-    parser.add_argument('--gensize', type=int, default=100000, help='Number of generate initial values')
-    parser.add_argument('--max_int', type=int, default=1000000000000, help='maximum integer')
-    parser.add_argument('--pop_size', type=int, default=200000, help='New examples at each epoch')
+    parser.add_argument("--gensize", type=int, default=100000, help="Number of generate initial values")
+    parser.add_argument("--sample_only", type=int, default=500000, help="sample the specified number from the model in each loop")
+    parser.add_argument("--pop_size", type=int, default=200000, help="New examples at each epoch")
     parser.add_argument('--max_epochs', type=int, default=1000, help='Number of epochs')
     parser.add_argument('--ntest', type=int, default=1000, help='Size of test set')
-    parser.add_argument('--base', type=int, default=10, help='Encoding base')
-    parser.add_argument('--reverse', type=bool_flag, default=False, help='Reversed digits')
     parser.add_argument('--max_len', type=int, default=500, help='Block size, maximumlength of sequences')
     parser.add_argument('--env_name', type=str, default="threerank", help='Math problem to be addressed')
     ENVS[parser.parse_known_args()[0].env_name].register_args(parser)
 
-    
     parser.add_argument('--input_file', type=str, default="", help='Optional input file with data')
     parser.add_argument('--process_pool', type=bool_flag, default="true", help='use process_pool to generate and score initial data')
     parser.add_argument('--always_search', type=bool_flag, default="true", help='if True, use local search for all examples generated (if False, only for invalid examples)')
@@ -44,16 +37,11 @@ def get_parser():
 
     ### ADD HERE THE PARAMETERS SPECIFIC TO YOUR PROBLEM ###
 
-    parser.add_argument('--symbols', type=str, default="|,&", help="symbols specific to the problem, separated by ',' ")
-
-    #GroupClass
-    parser.add_argument('--val', type=int, default=-1, help='absolute value of the discriminant, generated randomly if -1')
-    parser.add_argument('--nb_ap', type=int, default=10, help='Number of ap')
+    parser.add_argument('--symbols', type=str, default="SEP,EOS,PAD,BOS", help="symbols specific to the problem, separated by ',' ")
 
     # Makemore params
-    parser.add_argument('--num_workers', '-n', type=int, default=4, help="number of data workers for both train/test")
+    parser.add_argument('--num_workers', type=int, default=4, help="number of data workers for both train/test")
     parser.add_argument('--max_steps', type=int, default=50000, help="max number of optimization steps to run for, or -1 for infinite.")
-    # parser.add_argument('--max_epochs', type=int, default= 30000, help='number of epochs')
     parser.add_argument('--seed', type=int, default=-1, help="seed")
     # sampling
     parser.add_argument('--top_k', type=int, default=-1, help="top-k for sampling, -1 means no top-k")
@@ -62,13 +50,11 @@ def get_parser():
     parser.add_argument('--n_head', type=int, default=4, help="number of heads (in a transformer)")
     parser.add_argument('--n_embd', type=int, default=128, help="number of feature channels in the model")
     # optimization
-    parser.add_argument('--batch_size', '-b', type=int, default=32, help="batch size during optimization")
-    parser.add_argument('--learning_rate', '-l', type=float, default=5e-4, help="learning rate")
-    parser.add_argument('--weight_decay', '-w', type=float, default=0.01, help="weight decay")
+    parser.add_argument('--batch_size', type=int, default=32, help="batch size during optimization")
+    parser.add_argument('--learning_rate', type=float, default=5e-4, help="learning rate")
+    parser.add_argument('--weight_decay', type=float, default=0.01, help="weight decay")
     # evaluation against known "good sequences"
-    parser.add_argument('--max_output_length', type=int, default=100, help="maximum output length")
     parser.add_argument('--gen_batch_size', type=int, default=1000, help="generation batch size")
-    parser.add_argument('--n_tokens', type=int, default=100, help="nr tokens in tokenizer")
     parser.add_argument('--temperature', type=float, default=1.0, help="temperature")
     
 
@@ -94,12 +80,12 @@ def get_parser():
     return parser
 
 
-def detokenize(data):
+def detokenize(data, args, env):
     res = []
     if args.process_pool:
         pars = env.tokenizer.dataclass._save_class_params()
         
-        BATCH = getattr(args, "gen_batch_size", 10000)
+        BATCH = args.gen_batch_size
         batch_counts = [BATCH] * (len(data) // BATCH)
         rem = len(data) % BATCH
         if rem:
@@ -117,89 +103,73 @@ def detokenize(data):
                 if chunk:  # extend incrementally to manage memory
                     res.extend(chunk)
     else:
-        for _,d in enumerate(data):
-            lst = d.split(',')
-            l = env.tokenizer.decode(lst)
-            if l is None:
-                continue
-            res.append(l)
+        res = env.tokenizer.decode_batch(data, pars)
     return res
 
-def train(model, loader, optim, test_dataset):
+def train(model, args, loader, optim, test_dataset, current_best_loss=None):
     # training loop
-    best_loss = None
+    best_loss = current_best_loss or float("inf")
     step = 0
     curr_loss = 0
-    while True:
+    for step in range(args.max_steps):
 
-        t0 = time.time()
-
-        # get the next batch, ship to device, and unpack it to input and target
+        if step % 100 == 0:
+            t0 = time.time()
         batch = loader.next()
         batch = [t.to(args.device) for t in batch]
         X, Y = batch
 
-        logits, loss, _ = model(X, Y)
-        # calculate the gradient, update the weights
+        _, loss, _ = model(X, Y)
         model.zero_grad(set_to_none=True)
         loss.backward()
         optim.step()
         curr_loss += loss.item()
-        # wait for all CUDA work on the GPU to finish then calculate iteration time taken
-        if args.device =="cuda":
-            torch.cuda.synchronize()
-        t1 = time.time()
 
         # logging
-        if step % 100 == 0:
-            logger.info(f"step {step} | loss {loss.item():.4f} | step time {(t1-t0)*1000:.2f}ms")
-
-        # evaluate the model
-        if step > 0 and step % 500 == 0:
-            train_loss = curr_loss / 500 
-            test_loss  = evaluate(model, test_dataset,  args.device, batch_size=100, max_batches=10)
-            logger.info(f"step {step} train loss: {train_loss} test loss: {test_loss}")
-            # save the model to disk if it has improved
-            if best_loss is None or test_loss < best_loss:
-                out_path = os.path.join(args.dump_path, "model.pt")
-                logger.info(f"test loss {test_loss} is the best so far, saving model to {out_path}")
-                torch.save(model.state_dict(), out_path)
+        if (step + 1) % 100 == 0:
+            t1 = time.time()
+            logger.info(f"step {step + 1} | loss {loss.item():.4f} | step time {(t1-t0)*1000:.2f}ms")
+        if (step + 1) % 500 == 0:
+            train_loss = curr_loss / 500
+            test_loss = evaluate(model, test_dataset, args.device, batch_size=100, max_batches=10)
+            logger.info(f"step {step + 1} train loss: {train_loss} test loss: {test_loss}")
+            if test_loss < best_loss:
+                model_path = os.path.join(args.dump_path, "model.pt")
+                optimizer_path = os.path.join(args.dump_path, "optimizer.pt")
+                torch.save(model.state_dict(), model_path)
+                torch.save(optimizer.state_dict(), optimizer_path)
+                logger.info(f"test loss {test_loss} is the best so far, saved model to {model_path}")
                 best_loss = test_loss
             curr_loss = 0
-#            print_samples(num=10)
-                
-        step += 1
-        # termination conditions
-        if args.max_steps >= 0 and step >= args.max_steps:
-            break
-    
-    if args.device == "cuda":
-        logger.info(f"Memory allocated:  {torch.cuda.memory_allocated(0)/(1024*1024):.2f}MB, reserved: {torch.cuda.memory_reserved(0)/(1024*1024):.2f}MB")
-    elif args.device == "mps":
-        logger.info(f"Memory allocated:  {torch.mps.current_allocated_memory()/(1024*1024):.2f}MB, reserved: {torch.mps.driver_allocated_memory()/(1024*1024):.2f}MB")
 
-def sample(model, train_dataset):
+    return best_loss
+    
+
+def sample(model, args, stoi, itos, env):
+    eos_token_id = stoi["EOS"]
+    pad_token_id = stoi["PAD"]
+    bos_token_id = stoi["BOS"]
+
     new_words = []
 
-    sample_batch_size =args.gen_batch_size # reduce this if GPU crashes, increase it if sampling is slow
+    sample_batch_size = args.gen_batch_size # reduce this if GPU crashes, increase it if sampling is slow
     todo = args.sample_only // sample_batch_size
     for i in range(todo):
         if i % 100 == 0 :
             logger.info(f'{i*sample_batch_size} / {todo * sample_batch_size} samples generated')
     
-        X_init = torch.zeros(sample_batch_size, 1, dtype=torch.long).to(args.device)
+        X_init = torch.full((sample_batch_size, 1), bos_token_id, dtype=torch.long).to(args.device)
         top_k = args.top_k if args.top_k != -1 else None
-        X_samp = generate(model, X_init, args.max_output_length, temperature = args.temperature, top_k=top_k, do_sample=True).to('cpu')
-
-        for i in range(X_samp.size(0)):
-            # get the i'th row of sampled integers, as python list
-            row = X_samp[i, 1:].tolist() # note: we need to crop out the first <START> token
-            # token 0 is the <STOP> token, so we crop the output sequence at that point
-            crop_index = row.index(0) if 0 in row else len(row)
+        X_samp = model.generate(X_init, args.max_len + 1, temperature = args.temperature, top_k=top_k, do_sample=True, eos_token_id=eos_token_id, pad_token_id=pad_token_id).to('cpu')
+        
+        for j in range(X_samp.size(0)):
+            row = X_samp[j, 1:].tolist() # remove BOS token
+            crop_index = row.index(eos_token_id) if eos_token_id in row else len(row)
             row = row[:crop_index]
-            word_samp = train_dataset.decode(row)
+            word_samp = [itos[i] for i in row]
             new_words.append(word_samp)
-    return detokenize(new_words)
+
+    return detokenize(new_words, args, env)
 
 
 if __name__ == '__main__':
@@ -230,32 +200,41 @@ if __name__ == '__main__':
     env = build_env(args)
 
     classname = env.data_class
-    print(env.data_class.N, 'sdp')
-    print(classname.N, 'sdp')
     
     # system inits
     torch.manual_seed(args.seed)
 
-    args.vocab_size = len(env.symbols) + 1
-    args.block_size = args.max_len
+    args.vocab_size = len(env.symbols)
+
+    args.block_size = args.max_len + 2
+    stoi = {ch: i for i, ch in enumerate(env.symbols)}
+    itos = {i: ch for ch, i in stoi.items()}
 
     #Initialize transformer
-    model = Transformer(args)
+    model = Transformer(args, stoi["PAD"])
     model.to(args.device)
     model_path = os.path.join(args.dump_path, "model.pt")
+    optimizer_path = os.path.join(args.dump_path, "optimizer.pt")
     if os.path.isfile(model_path): 
         logger.info("resuming from existing model")
-
         if args.device == "cuda":
             reloaded = torch.load(model_path)
         elif args.device == "mps":
             reloaded = torch.load(model_path, map_location=torch.device('mps'))
         else:
             reloaded = torch.load(model_path, map_location=torch.device('cpu'))
-        if isinstance(reloaded, dict) and "state_dict" in reloaded:
-            model.load_state_dict(reloaded["state_dict"])
+        model.load_state_dict(reloaded)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay, betas=(0.9, 0.99), eps=1e-8, fused=True)
+    if os.path.isfile(optimizer_path):
+        print("resuming from existing optimizer")
+        if args.device == "cuda":
+            reloaded = torch.load(optimizer_path)
+        elif args.device == "mps":
+            reloaded = torch.load(optimizer_path, map_location=torch.device("mps"))
         else:
-            model.load_state_dict(reloaded)
+            reloaded = torch.load(optimizer_path, map_location=torch.device("cpu"))
+        optimizer.load_state_dict(reloaded)
+    
     train_set, test_set = load_initial_data(args, classname)
     train_data_path = os.path.join(args.dump_path, "train_data.pkl")
     test_data_path = os.path.join(args.dump_path, "test_data.pkl")
@@ -265,27 +244,34 @@ if __name__ == '__main__':
 
     # Loop of PatternBoost
     n_epoch = 0
+    best_loss = None
     for epoch in range(args.max_epochs):
         logger.info(f"==== Starting Epoch {n_epoch} =====")
         # tokenize 
         train_words = [env.tokenizer.encode(d) for d in train_set]
-        print("HERE some train words",train_words[:5])
         test_words = [env.tokenizer.encode(d) for d in test_set]
+        print("HERE some train words",train_words[:5])
+        train_words = [torch.LongTensor([stoi[ch] for ch in w]) for w in train_words]
+        test_words = [torch.LongTensor([stoi[ch] for ch in w]) for w in test_words]
         # data loaders
-        train_dataset = CharDataset(train_words, env.symbols, args.max_output_length)
-        test_dataset = CharDataset(test_words, env.symbols, args.max_output_length)
+        train_dataset = CharDataset(train_words, env.symbols, args.max_len, stoi)
+        test_dataset = CharDataset(test_words, env.symbols, args.max_len, stoi)
 
         if args.device == "cuda":
-            logger.info(f"Memory allocated:  {torch.cuda.memory_allocated(0)/(1024*1024):.2f}MB, reserved: {torch.cuda.memory_reserved(0)/(1024*1024):.2f}MB")
+            logger.info(f"Memory allocated: {torch.cuda.memory_allocated(0)/(1024*1024):.2f}MB, reserved: {torch.cuda.memory_reserved(0)/(1024*1024):.2f}MB")
         elif args.device == "mps":
-            logger.info(f"Memory allocated:  {torch.mps.current_allocated_memory()/(1024*1024):.2f}MB, reserved: {torch.mps.driver_allocated_memory()/(1024*1024):.2f}MB")
-        optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay, betas=(0.9, 0.99), eps=1e-8, fused=True)
+            logger.info(f"Memory allocated: {torch.mps.current_allocated_memory()/(1024*1024):.2f}MB, reserved: {torch.mps.driver_allocated_memory()/(1024*1024):.2f}MB")
         
         batch_loader = InfiniteDataLoader(train_dataset, batch_size=args.batch_size, pin_memory=True, num_workers=args.num_workers)
-        train(model, batch_loader,optimizer, test_dataset)
+        best_loss = train(model, args, batch_loader,optimizer, test_dataset, current_best_loss=best_loss)
 
-        new_data = sample(model, train_dataset) # should the token decoider be in the dataset?
+        new_data = sample(model, args, stoi, itos, env) # should the token decoider be in the dataset?
         logger.info(f"New data detokenized length is {len(new_data)}")
+
+        if args.device == "cuda":
+            torch.cuda.empty_cache()
+        elif args.device == "mps":
+            torch.mps.empty_cache()
 
         new_data = do_score(new_data,process_pool=args.process_pool,num_workers=args.num_workers,always_search=args.always_search)
 
@@ -293,6 +279,11 @@ if __name__ == '__main__':
         train_set, test_set = update_datasets(args, new_data, train_set, train_data_path, test_data_path)
     
         n_epoch += 1
+
+        if args.device == "cuda":
+            torch.cuda.empty_cache()
+        elif args.device == "mps":
+            torch.mps.empty_cache()
 
 
 
