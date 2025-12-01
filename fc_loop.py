@@ -279,14 +279,4 @@ if __name__ == '__main__':
         train_set, test_set = update_datasets(args, new_data, train_set, train_data_path, test_data_path)
     
         n_epoch += 1
-
-        if args.device == "cuda":
-            torch.cuda.empty_cache()
-        elif args.device == "mps":
-            torch.mps.empty_cache()
-
-
-
-
-
     
