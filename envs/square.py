@@ -2,7 +2,7 @@ from envs.environment import DataPoint, BaseEnvironment
 import math
 import numpy as np
 from utils import bool_flag
-from .tokenizers import SparseTokenizer, DenseTokenizer
+from .tokenizers import SparseTokenizer, DenseTokenizer, EdgeTokenizer
 
 
 
@@ -130,9 +130,13 @@ class SquareEnvironment(BaseEnvironment):
         super().__init__(params)
         SquareDataPoint.N = params.square_N
         SquareDataPoint.HARD = params.square_hard
-        if params.encoding_tokens == "edge":
+        if params.encoding_tokens == "edge_single_token":
             base = params.square_N * (params.square_N - 1) // 2
             self.tokenizer = SparseTokenizer(params.square_N, SquareDataPoint)
+            self.symbols = [str(i) for i in range(base)]
+        elif params.encoding_tokens == "edge_double_tokens":
+            base = params.square_N
+            self.tokenizer = EdgeTokenizer(params.square_N, SquareDataPoint)
             self.symbols = [str(i) for i in range(base)]
         elif params.encoding_tokens == "adjacency":
             self.tokenizer = DenseTokenizer(params.square_N, SquareDataPoint)
@@ -149,6 +153,6 @@ class SquareEnvironment(BaseEnvironment):
         """
         parser.add_argument('--square_N', type=int, default=30, help='Number of vertices in the square-free graph')
         parser.add_argument('--square_hard', type=bool_flag, default="false", help='whether only square-free graphs are accepted')
-        parser.add_argument('--encoding_tokens', type=str, default="edge", help='toknized by edge or adjacency matrix')
+        parser.add_argument('--encoding_tokens', type=str, default="edge_single_token", help='toknized by edge or adjacency matrix')
 
 

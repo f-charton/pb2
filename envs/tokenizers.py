@@ -83,6 +83,49 @@ class SparseTokenizer(Tokenizer):
     def decode_batch(self, data, pars=None):
         return super().decode_batch(data, pars)
 
+
+
+class EdgeTokenizer(Tokenizer):
+    def __init__(self, N, dataclass):
+        self.N = N
+        self.dataclass = dataclass
+
+    def encode(self, graph):
+        w = []
+        for i in range(self.N):
+            for j in range(i + 1, self.N):
+                if graph.matrix[i, j] == 1:
+                    w.append(str(i))
+                    w.append(str(j))
+                    w.append("SEP")
+        w.append("EOS")
+        return w
+    
+    def decode(self, lst):
+        """Decode a list of tokens to return a SquareDataPoint"""
+        graph = self.dataclass()
+        for i, el in enumerate(lst):
+            if el == "EOS":
+                lst = lst[:i]
+                break
+        if len(lst) % 3 != 0:
+            return None
+        try:
+            for c in range(0, len(lst), 3):
+                i, j, sep = int(lst[c]), int(lst[c+1]), lst[c+2]
+                if sep != "SEP" or i >= self.N or j >= self.N:
+                    return None
+                graph.matrix[i, j] = 1
+                graph.matrix[j, i] = 1
+        except ValueError as e:
+            return None
+        return graph
+
+    # stupid but needed to please PoolExectutor
+    def decode_batch(self, data, pars=None):
+        return super().decode_batch(data, pars)
+
+
 class DenseTokenizer(Tokenizer):
     def __init__(self, N, dataclass):
         self.N = N
