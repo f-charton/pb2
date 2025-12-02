@@ -1,7 +1,6 @@
 from .threerank import ThreeRankEnvironment
 #from .sidon import SidonEnvironment
-from .square import SquareEnvironment
-from .triangle import TriangleEnvironment
+from .cycle import SquareEnvironment, TriangleEnvironment
 
 ENVS = {
     'threerank': ThreeRankEnvironment,
