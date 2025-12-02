@@ -106,7 +106,6 @@ class TriangleDataPoint(CycleDataPoint):
     PENALTY = 2
 
     def _cycles_computation(self):
-        # TODO: check it!
         cycles = set()
         row_bits = []
         for i in range(self.N):
@@ -119,15 +118,16 @@ class TriangleDataPoint(CycleDataPoint):
         for i in range(self.N):
             bits_i = row_bits[i]
             for j in range(i + 1, self.N):
-                common = bits_i & row_bits[j]
-                x = common
-                while x:
-                    lsb_u = x & -x
-                    u = lsb_u.bit_length() - 1
-                    x ^= lsb_u
-                    elems = sorted([i, u, j])
-                    a, b, c = elems
-                    cycles.add((a, b, c))
+                if self.matrix[i, j] == 1:
+                    common = bits_i & row_bits[j]
+                    x = common
+                    while x:
+                        lsb_u = x & -x
+                        u = lsb_u.bit_length() - 1
+                        x ^= lsb_u
+                        elems = sorted([i, u, j])
+                        a, b, c = elems
+                        cycles.add((a, b, c))
         
         self.cycles = []
         for cycle in cycles:
