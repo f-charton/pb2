@@ -59,15 +59,37 @@ def make_train_test(data,ntest):
     rp = [data[i] for i in indices]
     return rp[:-ntest], rp[-ntest:]
 
+def compute_unique_data(old_data, new_data=None):
+    def add_unique(src, unique_hashes):
+        des = []
+        for d in src:
+            if d.features not in unique_hashes:
+                unique_hashes.add(d.features)
+                des.append(d)
+        return des, unique_hashes
+    
+    unique_hashes = set()
+    unique_old_data, unique_hashes = add_unique(old_data, unique_hashes)
+    if new_data is not None:
+        unique_new_data, unique_hashes = add_unique(new_data, unique_hashes)
+    else:
+        unique_new_data = None
+    return unique_old_data, unique_new_data
 
 
 def update_datasets(args, data, train_set, train_path, test_path):
+    if args.keep_only_unique:
+        data, _ = compute_unique_data(data)
     new_data = select_best(args.pop_size, data)
 
     new_train, test_set = make_train_test(new_data, args.ntest)
     logger.info(f"New train and test generated. Size are train: {len(new_train)}, test {len(test_set)}")
     #Get all examples of previous train and current train and then select best.
+    if args.keep_only_unique:
+        train_set, new_train = compute_unique_data(train_set, new_train)
+        logger.info(f"Unique data computed for original train set: {len(train_set)}, generated train set: {len(new_train)}")
     train_set = select_best(args.pop_size, train_set + new_train)
+    logger.info(f"Final train and test generated. Size are train: {len(train_set)}, test {len(test_set)}")
 
     pickle.dump(test_set, open(test_path, "wb"))
     pickle.dump(train_set, open(train_path, "wb"))

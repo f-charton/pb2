@@ -17,6 +17,7 @@ class SquareDataPoint(DataPoint):
         if init:
             self._add_edges_greedily()
             self.calc_score()
+            self.calc_features()
 
     def calc_score(self):
         if self.HARD and len(self.squares) > 0:
@@ -25,7 +26,11 @@ class SquareDataPoint(DataPoint):
         self.score = self.matrix.sum().item() // 2 - 6 * len(self.squares)
 
     def calc_features(self):
-        pass
+        w = []
+        for i in range(self.N):
+            for j in range(i + 1, self.N):
+                w.append(self.matrix[i, j])
+        self.features = ",".join(map(str, w))
 
     def _add_edges_greedily(self):
         adjmat3 = self.matrix @ self.matrix @ self.matrix
@@ -109,6 +114,7 @@ class SquareDataPoint(DataPoint):
         self._add_edges_greedily()
         self._squares_computation()
         self.calc_score()
+        self.calc_features()
 
     @classmethod
     def _update_class_params(self,pars):

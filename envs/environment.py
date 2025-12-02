@@ -80,12 +80,14 @@ def do_stats(n_invalid, data):
         mean = statistics.mean(scores)
         median = statistics.median(scores)
         stdev = statistics.stdev(scores)
+        top_1_percentile = statistics.quantiles(scores, n=100)[-1]
         max_score = max(scores)
         logger.info(f"Valid examples {len(scores)}")
         logger.info(f"Mean score: {mean}")
         logger.info(f"Median score: {median}")
         logger.info(f"stdev score: {stdev}")
         logger.info(f"Max score: {max_score}")
+        logger.info(f"Top 1 percentile score: {top_1_percentile}")
         logger.info("distribution of scores")
         for score, count in counts.items():
             logger.info(f"Score {score}: Count: {count}")

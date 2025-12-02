@@ -33,9 +33,6 @@ def get_parser():
     parser.add_argument('--process_pool', type=bool_flag, default="true", help='use process_pool to generate and score initial data')
     parser.add_argument('--always_search', type=bool_flag, default="true", help='if True, use local search for all examples generated (if False, only for invalid examples)')
 
-    #Generation arguments
-
-
     # Makemore params
     parser.add_argument('--num_workers', type=int, default=4, help="number of data workers for both train/test")
     parser.add_argument('--max_steps', type=int, default=50000, help="max number of optimization steps to run for, or -1 for infinite.")
@@ -53,6 +50,7 @@ def get_parser():
     # evaluation against known "good sequences"
     parser.add_argument('--gen_batch_size', type=int, default=1000, help="generation batch size")
     parser.add_argument('--temperature', type=float, default=1.0, help="temperature")
+    parser.add_argument('--keep_only_unique', type=bool_flag, default="false", help='keep only unique data')
     
 
     # path and ports
