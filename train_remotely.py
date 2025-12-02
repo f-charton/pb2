@@ -35,9 +35,10 @@ image = (
         channels=["conda-forge"],
     )
     .pip_install("torch==2.9.0+cu128", index_url="https://download.pytorch.org/whl/cu128")
+    .pip_install("numba")
     .env({"PYTHONPATH": MOUNT_AT})
     .workdir(MOUNT_AT)
-    .add_local_dir(local_path=".", remote_path="/workspace")
+    .add_local_dir(local_path=".", remote_path="/workspace", ignore = ["checkpoint/**"])
 )
 
 
