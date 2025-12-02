@@ -12,7 +12,7 @@ class CycleDataPoint(DataPoint):
 
     def __init__(self, init=False):
         super().__init__()
-        self.matrix = np.zeros((self.N, self.N), dtype=int)
+        self.matrix = np.zeros((self.N, self.N), dtype=np.int32)
         self.cycles = []
         if init:
             self._add_edges_greedily()

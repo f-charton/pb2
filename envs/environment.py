@@ -27,7 +27,7 @@ class DataPoint(ABC):
     
     def generate_and_score(self):
         self.calc_features()
-        self.calc_scores()
+        self.calc_score()
         return self if self.score >=0 else None
 
     @classmethod
