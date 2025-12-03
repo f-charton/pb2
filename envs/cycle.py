@@ -16,6 +16,7 @@ class CycleDataPoint(DataPoint):
         self.matrix = np.zeros((self.N, self.N), dtype=np.int32)
         self.cycles = []
         if init:
+            np.random.seed(None)
             self._add_edges_greedily()
             self.calc_score()
             self.calc_features()
