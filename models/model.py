@@ -163,15 +163,18 @@ class Transformer(nn.Module):
                 else:
                     idx_cond = idx[:, -1].unsqueeze(1)
                 logits, _, past_kv = self(idx_cond, past_kv=past_kv)
-                logits = logits[:, -1, :] / temperature
-                if top_k is not None:
-                    v, _ = torch.topk(logits, top_k)
-                    logits[logits < v[:, [-1]]] = -float("inf")
-                probs = F.softmax(logits, dim=-1)
-                if do_sample:
-                    idx_next = torch.multinomial(probs, num_samples=1)
+                if temperature == 0.0:
+                    idx_next = torch.argmax(logits, dim=-1)
                 else:
-                    _, idx_next = torch.topk(probs, k=1, dim=-1)
+                    logits = logits[:, -1, :] / temperature
+                    if top_k is not None:
+                        v, _ = torch.topk(logits, top_k)
+                        logits[logits < v[:, [-1]]] = -float("inf")
+                    probs = F.softmax(logits, dim=-1)
+                    if do_sample:
+                        idx_next = torch.multinomial(probs, num_samples=1)
+                    else:
+                        _, idx_next = torch.topk(probs, k=1, dim=-1)
                 idx_next = torch.where(finished_mask, self.pad_token_id, idx_next)
 
             idx = torch.cat((idx, idx_next), dim=1)
