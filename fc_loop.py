@@ -268,5 +268,7 @@ if __name__ == '__main__':
         #Possible to add another generation method here and mix it before taking the best
         train_set, test_set = update_datasets(args, new_data, train_set, train_data_path, test_data_path)
     
+        do_stats(-1, data=train_set)
+    
         n_epoch += 1
     

@@ -71,12 +71,12 @@ def do_stats(n_invalid, data):
     Compute and log statistics
     """
     scores = [d.score for d in data if d.score >= 0]
+    num_bins = 50
     logger.info(f"### Score distribution ###")
     if n_invalid >= 0:
         # Evaluation during training
         logger.info(f"Invalid examples: before local search: {n_invalid}, after: {len(data) - len(scores)}")
     if len(scores) > 0:
-        counts = Counter(sorted(scores))
         mean = statistics.mean(scores)
         median = statistics.median(scores)
         stdev = statistics.stdev(scores)
@@ -89,8 +89,22 @@ def do_stats(n_invalid, data):
         logger.info(f"Max score: {max_score}")
         logger.info(f"Top 1 percentile score: {top_1_percentile}")
         logger.info("distribution of scores")
-        for score, count in counts.items():
-            logger.info(f"Score {score}: Count: {count}")
+
+        counts = Counter(sorted(scores))
+        if len(counts) > num_bins:
+            min_score, max_score = min(scores), max(scores)
+            bin_width = (max_score - min_score) / num_bins
+            bins = Counter()
+            for score, count in counts.items():
+                bin_idx = min(int((score - min_score) / bin_width), num_bins - 1)
+                bin_start = min_score + bin_idx * bin_width
+                bin_end = bin_start + bin_width
+                bins[(bin_start, bin_end)] += count
+            for (start, end), count in bins.items():
+                logger.info(f"Score [{start:.2f}, {end:.2f}): Count: {count}")
+        else:
+            for score, count in counts.items():
+                logger.info(f"Score {score}: Count: {count}")
     return
 
 def _do_score(d, always_search:bool = False,pars=None):
