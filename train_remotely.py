@@ -44,7 +44,7 @@ image = (
 
 @app.function(
     image=image,
-    gpu="L4",
+    gpu="T4",
     timeout=24 * 60 * 60,
     volumes={DUMP_MOUNT_AT: vol},
 )

@@ -34,7 +34,7 @@ def get_parser():
     parser.add_argument('--always_search', type=bool_flag, default="true", help='if True, use local search for all examples generated (if False, only for invalid examples)')
 
     # Makemore params
-    parser.add_argument('--num_workers', type=int, default=4, help="number of data workers for both train/test")
+    parser.add_argument('--num_workers', type=int, default=8, help="number of data workers for both train/test")
     parser.add_argument('--max_steps', type=int, default=50000, help="max number of optimization steps to run for, or -1 for infinite.")
     parser.add_argument('--seed', type=int, default=-1, help="seed")
     # sampling

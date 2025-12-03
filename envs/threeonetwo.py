@@ -2,6 +2,7 @@ from envs.environment import DataPoint, BaseEnvironment
 import numpy as np
 from numba import njit
 from .tokenizers import SparseTokenizer, DenseTokenizer, EdgeTokenizer
+from utils import bool_flag
 
 
 @njit(cache=True)
@@ -238,10 +239,10 @@ class ThreeOneTwoEnvironment(BaseEnvironment):
             self.symbols = [str(i) for i in range(base)]
         elif params.encoding_tokens == "edge_double_tokens":
             base = params.N
-            self.tokenizer = EdgeTokenizer(params.N, self.data_class)
+            self.tokenizer = EdgeTokenizer(params.N, self.data_class, params.nosep)
             self.symbols = [str(i) for i in range(base)]
         elif params.encoding_tokens == "adjacency":
-            self.tokenizer = DenseTokenizer(params.N, self.data_class)
+            self.tokenizer = DenseTokenizer(params.N, self.data_class,params.nosep)
             self.symbols = [str(i) for i in range(2)]
         else:
             raise ValueError(f"Invalid encoding: {params.encoding_tokens}")
@@ -255,3 +256,4 @@ class ThreeOneTwoEnvironment(BaseEnvironment):
         """
         parser.add_argument('--N', type=int, default=30, help='Number of vertices in the 3-1-2 graph')
         parser.add_argument('--encoding_tokens', type=str, default="edge_single_token", help='toknized by edge or adjacency matrix')
+        parser.add_argument('--nosep', type=bool_flag, default="false", help='separator (for adjacency and double edge)')

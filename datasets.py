@@ -79,7 +79,10 @@ def compute_unique_data(old_data, new_data=None):
 
 def update_datasets(args, data, train_set, train_path, test_path):
     if args.keep_only_unique:
+        bef = len(data)
         data, _ = compute_unique_data(data)
+        aft = len(data)
+        logger.info(f"Unique processing: {aft} examples left, {bef-aft} duplicates")
     new_data = select_best(args.pop_size, data)
 
     new_train, test_set = make_train_test(new_data, args.ntest)

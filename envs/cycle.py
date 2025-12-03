@@ -3,6 +3,7 @@ import math
 import numpy as np
 from utils import bool_flag
 from .tokenizers import SparseTokenizer, DenseTokenizer, EdgeTokenizer
+from utils import bool_flag
 
 
 
@@ -191,10 +192,10 @@ class CycleEnvironment(BaseEnvironment):
             self.symbols = [str(i) for i in range(base)]
         elif params.encoding_tokens == "edge_double_tokens":
             base = params.N
-            self.tokenizer = EdgeTokenizer(params.N, self.data_class)
+            self.tokenizer = EdgeTokenizer(params.N, self.data_class,params.nosep)
             self.symbols = [str(i) for i in range(base)]
         elif params.encoding_tokens == "adjacency":
-            self.tokenizer = DenseTokenizer(params.N, self.data_class)
+            self.tokenizer = DenseTokenizer(params.N, self.data_class,params.nosep)
             self.symbols = [str(i) for i in range(2)]
         else:
             raise ValueError(f"Invalid encoding: {params.encoding_tokens}")
@@ -209,6 +210,7 @@ class CycleEnvironment(BaseEnvironment):
         parser.add_argument('--N', type=int, default=30, help='Number of vertices in the K-cycle-free graph')
         parser.add_argument('--hard', type=bool_flag, default="true", help='whether only K-cycle-free graphs are accepted')
         parser.add_argument('--encoding_tokens', type=str, default="edge_single_token", help='toknized by edge or adjacency matrix')
+        parser.add_argument('--nosep', type=bool_flag, default="false", help='separator (for adjacency and double edge)')
 
 
 class SquareEnvironment(CycleEnvironment):

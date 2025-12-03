@@ -86,9 +86,10 @@ class SparseTokenizer(Tokenizer):
 
 
 class EdgeTokenizer(Tokenizer):
-    def __init__(self, N, dataclass):
+    def __init__(self, N, dataclass, nosep):
         self.N = N
         self.dataclass = dataclass
+        self.nosep = nosep
 
     def encode(self, graph):
         w = []
@@ -97,7 +98,8 @@ class EdgeTokenizer(Tokenizer):
                 if graph.matrix[i, j] == 1:
                     w.append(str(i))
                     w.append(str(j))
-                    w.append("SEP")
+                    if not self.nosep:
+                        w.append("SEP")
         w.append("EOS")
         return w
     
@@ -108,15 +110,24 @@ class EdgeTokenizer(Tokenizer):
             if el == "EOS":
                 lst = lst[:i]
                 break
-        if len(lst) % 3 != 0:
+        ll = 2 if self.nosep else 3
+        if len(lst) % 2 != 0:
             return None
         try:
-            for c in range(0, len(lst), 3):
-                i, j, sep = int(lst[c]), int(lst[c+1]), lst[c+2]
-                if sep != "SEP" or i >= self.N or j >= self.N:
-                    return None
-                graph.matrix[i, j] = 1
-                graph.matrix[j, i] = 1
+            if self.nosep:
+                for c in range(0, len(lst), 2):
+                    i, j = int(lst[c]), int(lst[c+1])
+                    if i >= self.N or j >= self.N:
+                        return None
+                    graph.matrix[i, j] = 1
+                    graph.matrix[j, i] = 1
+            else:
+                for c in range(0, len(lst), 3):
+                    i, j, sep = int(lst[c]), int(lst[c+1]), lst[c+2]
+                    if sep != "SEP" or i >= self.N or j >= self.N:
+                        return None
+                    graph.matrix[i, j] = 1
+                    graph.matrix[j, i] = 1
         except ValueError as e:
             return None
         return graph
@@ -127,16 +138,18 @@ class EdgeTokenizer(Tokenizer):
 
 
 class DenseTokenizer(Tokenizer):
-    def __init__(self, N, dataclass):
+    def __init__(self, N, dataclass, nosep):
         self.N = N
         self.dataclass =  dataclass
+        self.nosep = nosep
 
     def encode(self, graph):
         w = []
         for i in range(self.N):
             for j in range(i + 1, self.N):
                 w.append(str(graph.matrix[i, j]))
-            w.append("SEP")
+            if not self.nosep:
+                w.append("SEP")
         w.append("EOS")
         return w
 
@@ -152,23 +165,41 @@ class DenseTokenizer(Tokenizer):
             jdx = 1
             expected_count = self.N - 1
             count = 0
-            for el in lst:
-                if el == "SEP":
-                    if count != expected_count:
+            if not self.nosep:
+                for el in lst:
+                    if el == "SEP":
+                        if count != expected_count:
+                            return None
+                        idx += 1
+                        jdx = idx + 1
+                        expected_count = self.N - idx - 1
+                        count = 0
+                    elif jdx >= self.N:
                         return None
-                    idx += 1
-                    jdx = idx + 1
-                    expected_count = self.N - idx - 1
-                    count = 0
-                elif jdx >= self.N:
+                    else:
+                        graph.matrix[idx, jdx] = int(el)
+                        graph.matrix[jdx, idx] = int(el)
+                        jdx += 1
+                        count += 1
+                if idx != self.N or count != 0:
                     return None
-                else:
+            else:
+                for el in lst:
+                    if count == expected_count:
+                        idx += 1
+                        jdx = idx + 1
+                        expected_count = self.N - idx - 1
+                        count = 0
+                    if jdx >= self.N:
+                        return None
+                    
                     graph.matrix[idx, jdx] = int(el)
                     graph.matrix[jdx, idx] = int(el)
                     jdx += 1
                     count += 1
-            if idx != self.N or count != 0:
-                return None
+                if idx != self.N or count != 0:
+                    return None
+
         except ValueError as e:
             return None
 
