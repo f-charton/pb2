@@ -23,9 +23,9 @@ def get_parser():
     parser.add_argument("--gensize", type=int, default=100000, help="Number of generate initial values")
     parser.add_argument("--sample_only", type=int, default=500000, help="sample the specified number from the model in each loop")
     parser.add_argument("--pop_size", type=int, default=200000, help="New examples at each epoch")
-    parser.add_argument('--max_epochs', type=int, default=1000, help='Number of epochs')
+    parser.add_argument('--max_epochs', type=int, default=2000, help='Number of epochs')
     parser.add_argument('--ntest', type=int, default=1000, help='Size of test set')
-    parser.add_argument('--max_len', type=int, default=500, help='Block size, maximumlength of sequences')
+    parser.add_argument('--max_len', type=int, default=500, help='Block size, maximum length of sequences')
     parser.add_argument('--env_name', type=str, default="threerank", help='Math problem to be addressed')
     ENVS[parser.parse_known_args()[0].env_name].register_args(parser)
 
