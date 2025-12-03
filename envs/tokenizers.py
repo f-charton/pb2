@@ -111,7 +111,7 @@ class EdgeTokenizer(Tokenizer):
                 lst = lst[:i]
                 break
         ll = 2 if self.nosep else 3
-        if len(lst) % 2 != 0:
+        if len(lst) % ll != 0:
             return None
         try:
             if self.nosep:
