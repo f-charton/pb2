@@ -101,6 +101,25 @@ def detokenize(data, args, env):
         res = env.tokenizer.decode_batch(data, pars)
     return res
 
+
+def reload_model_optimizer(args, model, optimizer):
+    model_path = os.path.join(args.dump_path, "model.pt")
+    optimizer_path = os.path.join(args.dump_path, "optimizer.pt")
+    if os.path.isfile(model_path):
+        if args.device == "cuda":
+            reloaded = torch.load(model_path)
+        else:
+            reloaded = torch.load(model_path, map_location=torch.device(args.device))
+        model.load_state_dict(reloaded)
+    if os.path.isfile(optimizer_path):
+        if args.device == "cuda":
+            reloaded = torch.load(optimizer_path)
+        else:
+            reloaded = torch.load(optimizer_path, map_location=torch.device(args.device))
+        optimizer.load_state_dict(reloaded)
+    logger.info("model and optimizer reloaded")
+
+
 def train(model, args, loader, optim, test_dataset, current_best_loss=None):
     # training loop
     best_loss = current_best_loss or float("inf")
@@ -233,9 +252,14 @@ if __name__ == '__main__':
     do_stats(-1,data=train_set)
 
     # Loop of PatternBoost
-    n_epoch = 0
     best_loss = None
-    for epoch in range(args.max_epochs):
+    epoch_file = os.path.join(args.dump_path, "epoch.txt")
+    if os.path.isfile(epoch_file):
+        with open(epoch_file, "r") as f:
+            n_epoch = int(f.read())
+    else:
+        n_epoch = 0
+    for epoch in range(n_epoch, args.max_epochs):
         logger.info(f"==== Starting Epoch {n_epoch} =====")
         # tokenize 
         train_words = [env.tokenizer.encode(d) for d in train_set]
@@ -255,6 +279,9 @@ if __name__ == '__main__':
         batch_loader = InfiniteDataLoader(train_dataset, batch_size=args.batch_size, pin_memory=True, num_workers=args.num_workers)
         best_loss = train(model, args, batch_loader,optimizer, test_dataset, current_best_loss=best_loss)
 
+        # taking the best model based on the test loss
+        reload_model_optimizer(args, model, optimizer)
+
         new_data = sample(model, args, stoi, itos, env) # should the token decoider be in the dataset?
         logger.info(f"New data detokenized length is {len(new_data)}")
 
@@ -271,4 +298,6 @@ if __name__ == '__main__':
         do_stats(-1, data=train_set)
     
         n_epoch += 1
+        with open(epoch_file, "w") as f:
+            f.write(str(n_epoch))
     
