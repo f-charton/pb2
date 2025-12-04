@@ -156,6 +156,8 @@ class SidonSetDataPoint(DataPoint):
         except ValueError as e:
             print(f"Value error in the generation {e}")
             return None
+        if len(result) == 0:
+            raise RuntimeError(f"Empty sequence decoded from {lst}")
         self.val = sorted(result)
         self.calc_features()
         self.calc_score()
@@ -173,6 +175,8 @@ class SidonSetDataPoint(DataPoint):
           - starting a random greedy from the set provided
         """
         #TODO could probably be improved using a better known search. This could also be included as an alternative generation method during the loop.
+        if len(self.val) == 0:
+            raise RuntimeError(f"Empty val at the beginning of local search with object {self}")
         step_left = self.steps
         # print(f"HERE in local search {self.val} and score {self.score}")
         while self.score <0 and self.hard and step_left > 0:
@@ -182,7 +186,7 @@ class SidonSetDataPoint(DataPoint):
         if self.score < 0:
             raise RuntimeError("score negative even after local_search, should not be possible")
         if len(self.val) == 0:
-            logger.info(f"Error no val with {self._build_diffs()}")
+            logger.info(f"Unreachable error no val with {self.diffs_count}")
 
         # old_score = self.score # debug
         # print("HERE OLD", old_score)
@@ -483,7 +487,7 @@ class SidonSetDataPoint(DataPoint):
         Optionally: can accept the modification even if it decreases the score using simulated annealing to avoid being stuck in local minima.
         """
         if not self.val:
-            logger.info("Error, impossible to apply move_shift no val")
+            logger.info(f"Error, impossible to apply move_shift no val with object {self}")
             logger.info(f"val is {self.val} with length {len(self.val)}")
             # raise RuntimeWarning("Impossible to apply move_shift, no val")
         i = random.randrange(len(self.val))

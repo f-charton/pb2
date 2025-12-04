@@ -1,4 +1,5 @@
 from numba import njit
+import numpy as np
 import math
 from collections import Counter
 from .environment import DataPoint, BaseEnvironment
@@ -6,7 +7,7 @@ from utils import bool_flag
 
 
 
-
+#### Utils for three ranks ###
 
 @njit
 def extended_gcd(a, b):
@@ -228,6 +229,10 @@ def legendre_symbol(a: int, p: int) -> int:
     return 1 if r == 1 else -1
 
 
+
+
+### DataPoint ####
+
 class GroupClass(DataPoint):
     """
     Main object class representing a group class. Contains:
@@ -236,15 +241,30 @@ class GroupClass(DataPoint):
      score: 3-rank
     """
     NB_AP=20
-    primes = [3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73]
     reverse=False
     base=10
-    def __init__(self,val):
-      super().__init__(None)
+    primes = [3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73]
+    max_int = int(1e12) #TODO increase if feasible
+    def __init__(self,val=None, init=False):
+      super().__init__()
       assert len(self.primes) >= self.NB_AP
-      self.val=val
       self.ap = [-2]*self.NB_AP
       self.score = -1
+
+      if init:
+        if val is None:
+          temp_score = -1
+          print("start num")
+          while temp_score < 0:
+            self.val = np.random.randint(1, self.max_int)
+            print(f"hop {self.val}")
+            temp_score = is_fundamental_discriminant(self.val)
+        else:
+          self.val = val
+        self.calc_features()
+        self.calc_score()
+      print(f"new_number {self.val}")
+
 
     def calc_features(self):
       for i in range(self.NB_AP): #TODO
@@ -298,24 +318,49 @@ class GroupClass(DataPoint):
               return None
       return cls(val)
     
-    @staticmethod
-    def register_args(parser):
-        """
-        Register environment parameters.
-        """
-        parser.add_argument(
-            "--reverse", type=bool_flag, default=False, help="Encode integers right to left"
-        )
-        parser.add_argument(
-            "--base", type=str, default=10, help="Base used for encoding val"
-        )
+    @classmethod
+    def _update_class_params(cls,pars):
+      cls.NB_AP,cls.reverse,cls.base,cls.primes,cls.max_int = pars
+
+    @classmethod
+    def _save_class_params(cls):
+        return (cls.NB_AP,cls.reverse,cls.base,cls.primes,cls.max_int)
+
+    @classmethod
+    def _batch_generate_and_score(cls,n, pars=None):
+        return super()._batch_generate_and_score(n,pars)
+
+
 
 class ThreeRankEnvironment(BaseEnvironment):
     data_class = GroupClass
     def __init__(self, params):
-        super().__init__(params)
-        GroupClass.reverse = params.reverse
-        GroupClass.base = params.base
-        self.symbols = [str(i) for i in range(max(params.base,3))]
-      
-   
+      super().__init__(params)
+      self.NB_AP = params.nb_ap
+      self.base = params.base
+      self.primes = [3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73]
+      self.reverse = params.reverse
+      self.max_int = params.max_int
+      self.symbols = [str(i) for i in range(max(params.base,3))]
+      self.symbols.extend(BaseEnvironment.SPECIAL_SYMBOLS)
+
+    @staticmethod
+    def register_args(parser):
+      """
+      Register environment parameters.
+      """
+      parser.add_argument(
+          "--reverse", type=bool_flag, default=False, help="Encode integers right to left"
+      )
+      parser.add_argument(
+          "--base", type=str, default=10, help="Base used for encoding val"
+      )
+      # parser.add_argument(
+      #     "--reverse", type=bool_flag, default="false", help="."
+      # )
+      parser.add_argument(
+          "--nb_ap", type=int, default=20, help="."
+      )
+      parser.add_argument(
+          "--max_int", type=int, default=int(1e12), help="."
+      )

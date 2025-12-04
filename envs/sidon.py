@@ -105,6 +105,9 @@ class SidonSetDataPoint(DataPoint):
         #TODO could probably be improved using a better known search. This could also be included as an alternative generation method during the loop.
         step_left = self.steps
         # print(f"HERE in local search {self.val} and score {self.score}")
+        if len(self.val) == 0:
+            raise RuntimeError(f"Empty val at the beginning of local search with object {self}")
+
         while self.score <0 and self.hard and step_left > 0:
             self._move_delete()
             # print(f"HERE after move delete {self.val} and score {self.score}")
@@ -112,7 +115,7 @@ class SidonSetDataPoint(DataPoint):
         if self.score < 0:
             raise RuntimeError("score negative even after local_search, should not be possible")
         if len(self.val) == 0:
-            logger.info(f"Error no val with {self._build_diffs()}")
+            logger.info(f"Error no val with {self.diffs_count()}")
 
         # old_score = self.score # debug
         # print("HERE OLD", old_score)
@@ -558,6 +561,10 @@ class SidonSetDataPoint(DataPoint):
     @classmethod
     def _save_class_params(cls):
         return (cls.N, cls.M, cls.hard, cls.insert_prob, cls.delete_prob, cls.shift_prob, cls.temp, cls.temp_decay, cls.init_method, cls.init_k, cls.jitter_init, cls.steps)
+
+    @classmethod
+    def _batch_generate_and_score(cls,n, pars=None):
+        return super()._batch_generate_and_score(n,pars)
 
 
 

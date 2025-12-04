@@ -26,7 +26,7 @@ def get_parser():
     parser.add_argument('--max_epochs', type=int, default=2000, help='Number of epochs')
     parser.add_argument('--ntest', type=int, default=1000, help='Size of test set')
     parser.add_argument('--max_len', type=int, default=500, help='Block size, maximum length of sequences')
-    parser.add_argument('--env_name', type=str, default="threerank", help='Math problem to be addressed')
+    parser.add_argument('--env_name', type=str, default="sidon", help='Math problem to be addressed')
     ENVS[parser.parse_known_args()[0].env_name].register_args(parser)
 
     parser.add_argument('--input_file', type=str, default="", help='Optional input file with data')
@@ -35,7 +35,8 @@ def get_parser():
 
     # Makemore params
     parser.add_argument('--num_workers', type=int, default=8, help="number of data workers for both train/test")
-    parser.add_argument('--max_steps', type=int, default=50000, help="max number of optimization steps to run for, or -1 for infinite.")
+    parser.add_argument('--max_steps', type=int, default=50000, help="number of training steps.")
+    parser.add_argument('--num_eval_steps', type=int, default=500, help="number of step between each evaluation during training.")
     parser.add_argument('--seed', type=int, default=-1, help="seed")
     # sampling
     parser.add_argument('--top_k', type=int, default=-1, help="top-k for sampling, -1 means no top-k")
@@ -143,8 +144,8 @@ def train(model, args, loader, optim, test_dataset, current_best_loss=None):
         if (step + 1) % 100 == 0:
             t1 = time.time()
             logger.info(f"step {step + 1} | loss {loss.item():.4f} | step time {(t1-t0)*1000:.2f}ms")
-        if (step + 1) % 500 == 0:
-            train_loss = curr_loss / 500
+        if (step + 1) % args.num_eval_steps == 0:
+            train_loss = curr_loss / args.num_eval_steps
             test_loss = evaluate(model, test_dataset, args.device, batch_size=100, max_batches=10)
             logger.info(f"step {step + 1} train loss: {train_loss} test loss: {test_loss}")
             if test_loss < best_loss:

@@ -269,5 +269,6 @@ class SidonTokenizer(Tokenizer):
             print(f"Value error in the generation {e}")
             return None
         val = sorted(result)
+        assert len(val) > 0, sub_lists
         sidonpoint = self.dataclass(val=val,init=True)
         return sidonpoint
