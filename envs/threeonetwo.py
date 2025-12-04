@@ -193,6 +193,7 @@ class ThreeOneTwoDataPoint(DataPoint):
         self.features = ",".join(map(str, w))
 
     def _add_edges_greedily(self):
+        np.random.seed(None)
         candidates = np.arange(self.N * self.N, dtype=np.int32)
         np.random.shuffle(candidates)
         _greedy_fill_jittered(self.matrix, candidates, self.N)
