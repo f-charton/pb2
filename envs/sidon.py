@@ -2,11 +2,14 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from logging import getLogger
 from typing import Dict, List, Tuple, Optional
-from envs.environment import DataPoint
+from envs.environment import BaseEnvironment, DataPoint
 import random
 from collections import Counter
 import math
 import bisect
+
+from envs.tokenizers import SidonTokenizer
+from utils import bool_flag
 
 logger = getLogger()
 
@@ -27,23 +30,8 @@ class SidonSetDataPoint(DataPoint):
     Candidate Sidon set. The candidate is a Sidon set if the number of collisions is zero.
     """
 
-    def __init__(self, val, params):
-        super().__init__(params)
-        self.N: int = int(params.N)
-        self.M: int = int(params.M)
-        self.hard : bool = params.hard
-
-        # seed = params.seed # Only for debug and not for running: it will generated the same candidate otherwise.
-        # if seed is not None:
-        #     random.seed(seed)
-
-        self.steps: int = int(params.sidon_steps)
-
-        #Probabilities of the different moves for the local search
-
-        self.insert_prob: float = float(params.insert_prob)
-        self.delete_prob: float = float(params.delete_prob)
-        self.shift_prob: float  = float(params.shift_prob)
+    def __init__(self, val:Optional[List]=None, init=False):
+        super().__init__()
 
         total_prob = self.insert_prob + self.delete_prob + self.shift_prob
         if total_prob <= 0:
@@ -54,38 +42,33 @@ class SidonSetDataPoint(DataPoint):
             self.shift_prob  /= total_prob
 
 
-        self.temp: float = float(params.temp0)
-        self.temp_decay: float = float(params.temp_decay)
+        if init:
+            if val is not None:
+                self.val = sorted(set(int(x) for x in val if 0 <= int(x) <= self.N))
+            else:
+                if self.init_k > 0:
+                    target_k = int(self.init_k)
+                elif self.init_k == 0:
+                    target_k = max(1, int(math.sqrt(self.N)))
+                else:
+                    target_k = None
+                if self.init_method == "random_greedy":
+                    self.val = self._seed_random_greedy(target_k)
+                elif self.init_method == "mian_chowla":
+                    self.val = self._seed_mian_chowla()
+                else:
+                    self.val = self._seed_evenly_spaced(int(self.init_k), jitter=bool(self.jitter_init))
+                #Sort the set
+                self.val = sorted(self.val)
 
-        # Initialize candidate
-        self.init_method = params.init_method or "random_greedy"
-
-        if isinstance(val,list):
-            self.val = sorted(set(int(x) for x in val if 0 <= int(x) <= self.N))
+            # Using the fact that a set is Sidon is all the positive differences between to elements a-x are distincts. We keep in memory the differences
+            self.diffs_count = [0] * (self.N + 1)
+            # Initial score/features
+            self.calc_score()
+            self.calc_features()
         else:
-            if params.init_k > 0:
-                target_k = int(params.init_k)
-            elif params.init_k == 0:
-                target_k = max(1, int(math.sqrt(self.N)))
-            else:
-                target_k = None
-            if self.init_method == "random_greedy":
-                self.val = self._seed_random_greedy(target_k)
-            elif self.init_method == "mian_chowla":
-                self.val = self._seed_mian_chowla()
-            else:
-                self.val = self._seed_evenly_spaced(int(params.init_k), jitter=bool(params.jitter_init))
-
-        #Sort the set
-        self.val = sorted(self.val)
-
-        # Using the fact that a set is Sidon is all the positive differences between to elements a-x are distincts. We keep in memory the differences
-        self.diffs_count = [0] * (self.N + 1)
-        # Initial score/features
-        self.calc_score()
-        self.calc_features()
-
-
+            assert isinstance(val,list)
+            self.val = sorted(set(int(x) for x in val if 0 <= int(x) <= self.N))
 
 
     def calc_score(self):
@@ -107,59 +90,6 @@ class SidonSetDataPoint(DataPoint):
         """
         pass
 
-    def encode(self, base=10, reverse=False):
-        w = []
-        for el in self.val:
-            v = el
-            curr_w = []
-            while v > 0:
-                curr_w.append(str(v%base))
-                v=v//base
-            w.extend(curr_w)
-            w.append("|")
-        return w
-
-    def decode(self, lst, base=10, reverse=False):
-        """
-        Create a SidonSetDataPoint from a list
-        """
-        sub_lists = []
-        current = []
-        for item in lst:
-            if item == "|":
-                if current:
-                    sub_lists.append(current)
-                    current = []
-            else:
-                current.append(item)
-        if current:
-            sub_lists.append(current)
-
-        result = []
-        try:
-            for sub_list in sub_lists:
-                if base <= 36:
-                    #36 is the maximum supported by int
-                    num_str = ''.join(sub_list)
-                    num = int(num_str, base)
-                else:
-                    num = 0
-                    for el in sub_list:
-                        v =int(el)
-                        if v < 0 or v >= base:
-                            raise ValueError(f"Digit {v} out of range for base {base}")
-                        num = num * base + v
-                if num > self.N:
-                    # return None #with this option, as soon as the model outputs a number above self.N we discard the full sequence
-                    continue #at least for debug this option is a bit softer and allows it to only remove the element that shouldn't be there,
-                result.append(num)
-        except ValueError as e:
-            print(f"Value error in the generation {e}")
-            return None
-        self.val = sorted(result)
-        self.calc_features()
-        self.calc_score()
-        return self
 
     def local_search(self) -> None:
         """
@@ -228,6 +158,7 @@ class SidonSetDataPoint(DataPoint):
         self.calc_score()
         self.calc_features()
         # print("HERE NEW", self.score)
+
     # -----------------------
     # Methods specific to the problem
     # -----------------------
@@ -405,66 +336,6 @@ class SidonSetDataPoint(DataPoint):
         v.pop(pos)
         return delta
 
-    # def _add_element(self, x: int) -> int:
-    #     """
-    #     Insert mark x into self.val; update pair sums incrementally.
-    #     Returns delta_collisions (new_collisions - old_collisions).
-    #     """
-    #     delta = 0
-    #     v = self.val
-    #     # Compute the occurence of the first pair created by x (that is x+x)
-    #     s = x + x
-    #     old = self.sums_count.get(s, 0)
-    #     delta += 1 if old >= 1 else 0  # adding one more creates a collision iff old>=1
-    #     self.sums_count[s] = old + 1
-
-    #     for y in v:
-    #         s = x + y
-    #         old = self.sums_count.get(s, 0)
-    #         delta += 1 if old >= 1 else 0
-    #         self.sums_count[s] = old + 1
-    #     # Insert into val (keep sorted)
-    #     bisect.insort(v, x)
-    #     return delta
-
-    # def _remove_element(self, x: int) -> int:
-    #     """
-    #     Remove element x from the set self.val; update pair sums incrementally.
-    #     Returns difference of collisions delta_collisions = (new_collisions - old_collisions).
-    #     """
-    #     delta = 0
-    #     v = self.val
-    #     # Look at all the pairs to which x contributed, starting by x+x
-    #     s = x + x
-    #     old = self.sums_count.get(s, 0)
-    #     # removing reduces a collision iff old>=2 which meant that there was a collision at value s
-    #     delta -= 1 if old >= 2 else 0
-    #     newc = old - 1
-
-    #     #Update the dict of collisions
-    #     if newc == 0:
-    #         self.sums_count.pop(s, None)
-    #     else:
-    #         self.sums_count[s] = newc
-
-    #     # do the same for all the values s = x+y, could be factorized
-    #     for y in v:
-    #         if y == x:
-    #             continue
-    #         s = x + y
-    #         old = self.sums_count.get(s, 0)
-    #         delta -= 1 if old >= 2 else 0
-    #         newc = old - 1
-    #         if newc == 0:
-    #             self.sums_count.pop(s, None)
-    #         else:
-    #             self.sums_count[s] = newc
-
-    #     # Remove from val
-    #     idx = bisect.bisect_left(v, x)
-    #     if idx < len(v) and v[idx] == x:
-    #         v.pop(idx)
-    #     return delta
 
     def _shift_element(self, old_x: int, new_x: int) -> int:
         """
@@ -622,7 +493,9 @@ class SidonSetDataPoint(DataPoint):
         # Score removal by the number of differences involving it that currently collide.
         best_idx = None
         best_gain = None
+        assert isinstance(self.val,list)
         v = self.val
+
 
         if self.hard and self.score > 0:
             #Change here to have simulated annealing but keep at least 2 elements.
@@ -677,23 +550,47 @@ class SidonSetDataPoint(DataPoint):
 # On pourrait générer des éléments, puis passer à une destructions d'élements jusqu'à ce qu'il n'y ait plus de collision et garder ce qui reste puis filtrer.
 # Alternativement on pourrait générer depuis une meilleure seed, mais on risque de sur-spécialiser le modèle.
 
+
+    @classmethod
+    def _update_class_params(cls,pars):
+        cls.N, cls.M, cls.hard, cls.insert_prob, cls.delete_prob, cls.shift_prob, cls.temp, cls.temp_decay, cls.init_method, cls.init_k, cls.jitter_init, cls.steps = pars
+
+    @classmethod
+    def _save_class_params(cls):
+        return (cls.N, cls.M, cls.hard, cls.insert_prob, cls.delete_prob, cls.shift_prob, cls.temp, cls.temp_decay, cls.init_method, cls.init_k, cls.jitter_init, cls.steps)
+
+
+
 class SidonSetEnvironment(BaseEnvironment):
     data_class = SidonSetDataPoint
 
     def __init__(self, params):
         super().__init__(params)
-#        TriangleDataPoint.N = params.triangle_N
-#        TriangleDataPoint.SQUARE_HARD = params.triangle_hard
-#        TriangleDataPoint.INIT_METHOD = params.triangle_init_method
-#        if params.edge_tokens:
-#            base = params.triangle_N * (params.triangle_N - 1) // 2
-#            self.tokenizer = SparseTokenizer(params.triangle_N, TriangleDataPoint)
-#            self.symbols = [str(i) for i in range(base)]
-#        else:
-#            self.tokenizer = DenseTokenizer(params.triangle_N, TriangleDataPoint)
-#            self.symbols = [str(i) for i in range(3)]
+        self.data_class.N = int(params.N)
+        self.data_class.M = int(params.M)
+        self.data_class.hard = params.hard
+        self.data_class.jitter_init = params.jitter_init
 
-#        self.symbols.extend(BaseEnvironment.SPECIAL_SYMBOLS)
+        # seed = params.seed # Only for debug and not for running: it will generated the same candidate otherwise.
+        # if seed is not None:
+        #     random.seed(seed)
+
+        self.data_class.steps = int(params.sidon_steps)
+        self.data_class.temp = float(params.temp0)
+        self.data_class.temp_decay = float(params.temp_decay)
+        self.data_class.init_method = params.init_method or "random_greedy"
+        self.data_class.init_k = params.init_k
+
+        #Probabilities of the different moves for the local search
+
+        self.data_class.insert_prob = float(params.insert_prob)
+        self.data_class.delete_prob = float(params.delete_prob)
+        self.data_class.shift_prob  = float(params.shift_prob)
+
+        self.tokenizer = SidonTokenizer(params.N, self.data_class,nosep=params.nosep,base=params.base)
+        self.symbols = [str(i) for i in range(params.base)]
+        self.symbols.extend(BaseEnvironment.SPECIAL_SYMBOLS)
+
 
     @staticmethod
     def register_args(parser):
@@ -702,6 +599,7 @@ class SidonSetEnvironment(BaseEnvironment):
         """
         parser.add_argument('--N', type=int, default="500", help='Defines the set {0,....,N} in which the Sidon subset is looked for')
         parser.add_argument('--M', type=int, default="1", help='reward weight for length of Sidon Sets')
+        parser.add_argument('--base', type=int, default="10", help='reward weight for length of Sidon Sets')
         parser.add_argument('--hard', type=bool_flag, default="true", help='whether only sidon sets are accepted')
         parser.add_argument('--insert_prob', type=float, default=0.33, help='probability of insert move in the local search')
         parser.add_argument('--delete_prob', type=float, default=0.33, help='probability of delete move in the local search')
@@ -712,3 +610,4 @@ class SidonSetEnvironment(BaseEnvironment):
         parser.add_argument("--init_k", type=int, default=-1, help="by default size of the Sidon set that one tries to construct in the generation")
         parser.add_argument("--jitter_init", type=bool_flag, default="true", help="if generation is evenly spaced, should there be random displacements")
         parser.add_argument('--sidon_steps', type=int, default=2000, help='number of steps in local search')
+        parser.add_argument('--nosep', type=bool_flag, default="false", help='separator (for adjacency and double edge)')

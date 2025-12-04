@@ -208,3 +208,66 @@ class DenseTokenizer(Tokenizer):
     # stupid but needed to please PoolExectutor
     def decode_batch(self, data, pars=None):
         return super().decode_batch(data, pars)
+
+class SidonTokenizer(Tokenizer):
+    def __init__(self, N, dataclass, nosep, separator :str = "SEP", base: int = 10):
+        self.N = N
+        self.dataclass =  dataclass
+        self.nosep = nosep
+        self.separator = separator
+
+    def encode(self, sidonset, base=10, reverse=False):
+        w = []
+        val = sidonset.val
+        for el in val:
+            v = el
+            curr_w = []
+            while v > 0:
+                curr_w.append(str(v%base))
+                v=v//base
+            w.extend(curr_w)
+            if not self.nosep:
+                w.append(self.separator)
+        return w
+
+    def decode(self, lst, base=10, reverse=False):
+        """
+        Create a SidonSetDataPoint from a list
+        """
+        sub_lists = []
+        current = []
+        for item in lst:
+            if item == self.separator:
+                if current:
+                    sub_lists.append(current)
+                    current = []
+            else:
+                current.append(item)
+        if current:
+            sub_lists.append(current)
+
+        result = []
+        try:
+            for sub_list in sub_lists:
+                if base <= 36:
+                    #36 is the maximum supported by the int method, suprisingly
+                    num_str = ''.join(sub_list)
+                    num = int(num_str, base)
+                else:
+                    #fallback to an explicit method
+                    num = 0
+                    for el in sub_list:
+                        v =int(el)
+                        if v < 0 or v >= base:
+                            raise ValueError(f"Digit {v} out of range for base {base}")
+                        num = num * base + v
+                if num > self.N:
+                    # return None #with this option, as soon as the model outputs a number above self.N we discard the full sequence
+                    continue #at least for debug this option is a bit softer when the model is at the beginning of training and allows it to only remove the element that shouldn't be there,
+                result.append(num)
+        except ValueError as e:
+            print(f"Value error in the generation {e}")
+            return None
+        val = sorted(result)
+        sidonpoint = self.dataclass(val=val,init=True)
+        return sidonpoint

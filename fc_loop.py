@@ -199,6 +199,8 @@ if __name__ == '__main__':
     if args.device == "mps":
         torch.mps.manual_seed(args.seed)
 
+    fused = True if args.device == "cuda" else False
+
     init_distributed_mode(args)
     logger = initialize_exp(args)
     if not os.path.exists(args.dump_path):
@@ -235,7 +237,7 @@ if __name__ == '__main__':
         else:
             reloaded = torch.load(model_path, map_location=torch.device(args.device))
         model.load_state_dict(reloaded)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay, betas=(0.9, 0.99), eps=1e-8, fused=True)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay, betas=(0.9, 0.99), eps=1e-8, fused=fused)
     if os.path.isfile(optimizer_path):
         print("resuming from existing optimizer")
         if args.device == "cuda":
