@@ -196,7 +196,7 @@ class CycleEnvironment(BaseEnvironment):
             self.tokenizer = EdgeTokenizer(params.N, self.data_class,params.nosep)
             self.symbols = [str(i) for i in range(base)]
         elif params.encoding_tokens == "adjacency":
-            self.tokenizer = DenseTokenizer(params.N, self.data_class,params.nosep)
+            self.tokenizer = DenseTokenizer(params.N, self.data_class,params.nosep, params.pow2base)
             self.symbols = [str(i) for i in range(2)]
         else:
             raise ValueError(f"Invalid encoding: {params.encoding_tokens}")
@@ -212,7 +212,8 @@ class CycleEnvironment(BaseEnvironment):
         parser.add_argument('--hard', type=bool_flag, default="true", help='whether only K-cycle-free graphs are accepted')
         parser.add_argument('--encoding_tokens', type=str, default="edge_single_token", help='toknized by edge or adjacency matrix')
         parser.add_argument('--nosep', type=bool_flag, default="false", help='separator (for adjacency and double edge)')
-
+        parser.add_argument('--pow2base', type=int, default=1, help='Number of adjacency entries to code together')
+        
 
 class SquareEnvironment(CycleEnvironment):
     data_class = SquareDataPoint

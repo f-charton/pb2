@@ -138,18 +138,28 @@ class EdgeTokenizer(Tokenizer):
 
 
 class DenseTokenizer(Tokenizer):
-    def __init__(self, N, dataclass, nosep):
+    def __init__(self, N, dataclass, nosep, pow2base=1):
         self.N = N
         self.dataclass =  dataclass
         self.nosep = nosep
+        self.pow2base = pow2base
 
     def encode(self, graph):
         w = []
+        count = 1
+        val = 0
         for i in range(self.N):
             for j in range(i + 1, self.N):
-                w.append(str(graph.matrix[i, j]))
+                val += count * graph.matrix[i, j]
+                count *= 2
+                if count == 2 ** self.pow2base:
+                    w.append(str(val))
+                    count = 1
+                    val = 0
             if not self.nosep:
                 w.append("SEP")
+        if count > 1:
+            w.append(str(val))
         w.append("EOS")
         return w
 
@@ -160,45 +170,34 @@ class DenseTokenizer(Tokenizer):
             if el == "EOS":
                 lst = lst[:i]
                 break
+        if len(lst) != math.ceil(((self.N*(self.N-1))//2)/self.pow2base):
+            return None
         try:
             idx = 0
             jdx = 1
-            expected_count = self.N - 1
-            count = 0
-            if not self.nosep:
-                for el in lst:
-                    if el == "SEP":
-                        if count != expected_count:
-                            return None
-                        idx += 1
-                        jdx = idx + 1
-                        expected_count = self.N - idx - 1
-                        count = 0
-                    elif jdx >= self.N:
-                        return None
-                    else:
-                        graph.matrix[idx, jdx] = int(el)
-                        graph.matrix[jdx, idx] = int(el)
-                        jdx += 1
-                        count += 1
-                if idx != self.N or count != 0:
-                    return None
-            else:
-                for el in lst:
-                    if count == expected_count:
-                        idx += 1
-                        jdx = idx + 1
-                        expected_count = self.N - idx - 1
-                        count = 0
-                    if jdx >= self.N:
-                        return None
-                    
-                    graph.matrix[idx, jdx] = int(el)
-                    graph.matrix[jdx, idx] = int(el)
+            for el in lst[:-1]:
+                val = int(el)
+                for _ in range(self.pow2base):
+                    graph.matrix[idx, jdx] = val%2
+                    graph.matrix[jdx, idx] = val%2
+                    val //= 2
                     jdx += 1
-                    count += 1
-                if idx != self.N or count != 0:
-                    return None
+                    if jdx == self.N:
+                        idx +=1
+                        jdx = idx + 1
+            
+            val = int(lst[-1])
+            last_count = (self.N*(self.N-1))//2 - self.pow2base * (len(lst) - 1)
+            for _ in range(last_count):
+                graph.matrix[idx, jdx] = val%2
+                graph.matrix[jdx, idx] = val%2
+                val //= 2
+                jdx += 1
+                if jdx == self.N:
+                    idx +=1
+                    jdx = idx + 1
+            if val > 0:
+                return None
 
         except ValueError as e:
             return None
