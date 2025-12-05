@@ -83,7 +83,10 @@ def update_datasets(args, data, train_set, train_path, test_path):
         data, _ = compute_unique_data(data)
         aft = len(data)
         logger.info(f"Unique processing: {aft} examples left, {bef-aft} duplicates")
-    new_data = select_best(args.pop_size, data)
+    if args.new_proportion > 0.0:
+        new_data = select_best(int(args.new_proportion*args.pop_size), data)
+    else:
+        new_data = select_best(args.pop_size, data)
 
     new_train, test_set = make_train_test(new_data, args.ntest)
     logger.info(f"New train and test generated. Size are train: {len(new_train)}, test {len(test_set)}")
@@ -91,7 +94,10 @@ def update_datasets(args, data, train_set, train_path, test_path):
     if args.keep_only_unique:
         train_set, new_train = compute_unique_data(train_set, new_train)
         logger.info(f"Unique data computed for original train set: {len(train_set)}, generated train set: {len(new_train)}")
-    train_set = select_best(args.pop_size, train_set + new_train)
+    if args.new_proportion > 0.0:
+        train_set = select_best(int((1.0-args.new_proportion)*args.pop_size), train_set) + new_train
+    else:    
+        train_set = select_best(args.pop_size, train_set + new_train)
     logger.info(f"Final train and test generated. Size are train: {len(train_set)}, test {len(test_set)}")
 
     pickle.dump(test_set, open(test_path, "wb"))

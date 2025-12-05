@@ -32,6 +32,7 @@ def get_parser():
     parser.add_argument('--input_file', type=str, default="", help='Optional input file with data')
     parser.add_argument('--process_pool', type=bool_flag, default="true", help='use process_pool to generate and score initial data')
     parser.add_argument('--always_search', type=bool_flag, default="true", help='if True, use local search for all examples generated (if False, only for invalid examples)')
+    parser.add_argument('--new_proportion', type=float, default=0.0, help="proportion of new samples in test set")
 
     # Makemore params
     parser.add_argument('--num_workers', type=int, default=8, help="number of data workers for both train/test")
@@ -44,6 +45,8 @@ def get_parser():
     parser.add_argument('--n_layer', type=int, default=4, help="number of layers")
     parser.add_argument('--n_head', type=int, default=4, help="number of heads (in a transformer)")
     parser.add_argument('--n_embd', type=int, default=128, help="number of feature channels in the model")
+    parser.add_argument('--no_positional', type=bool_flag, default="true", help='no positional embedding')
+    
     # optimization
     parser.add_argument('--batch_size', type=int, default=32, help="batch size during optimization")
     parser.add_argument('--learning_rate', type=float, default=5e-4, help="learning rate")
@@ -51,8 +54,9 @@ def get_parser():
     # evaluation against known "good sequences"
     parser.add_argument('--gen_batch_size', type=int, default=1000, help="generation batch size")
     parser.add_argument('--temperature', type=float, default=1.0, help="temperature")
-    parser.add_argument('--keep_only_unique', type=bool_flag, default="false", help='keep only unique data')
-    
+    parser.add_argument('--keep_only_unique', type=bool_flag, default="true", help='keep only unique data')
+    parser.add_argument("--always_reload", type=bool_flag, default="false",help="reload best model before generation")
+# de
 
     # path and ports
     parser.add_argument("--dump_path", type=str, default="checkpoint",
@@ -283,7 +287,8 @@ if __name__ == '__main__':
         best_loss = train(model, args, batch_loader,optimizer, test_dataset, current_best_loss=best_loss)
 
         # taking the best model based on the test loss
-        reload_model_optimizer(args, model, optimizer)
+        if args.always_reload:
+            reload_model_optimizer(args, model, optimizer)
 
         new_data = sample(model, args, stoi, itos, env) # should the token decoider be in the dataset?
         logger.info(f"New data detokenized length is {len(new_data)}")

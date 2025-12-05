@@ -85,15 +85,21 @@ class Block(nn.Module):
 class Transformer(nn.Module):
     def __init__(self, config, pad_token_id, eos_token_id):
         super().__init__()
+        self.no_positional = config.no_positional
         self.block_size = config.block_size
-        self.transformer = nn.ModuleDict(
-            dict(
+        if self.no_positional:
+            self.transformer = nn.ModuleDict(dict(
+                wte=nn.Embedding(config.vocab_size, config.n_embd),
+                h=nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
+                ln_f=nn.LayerNorm(config.n_embd),
+            ))
+        else:
+            self.transformer = nn.ModuleDict(dict(
                 wte=nn.Embedding(config.vocab_size, config.n_embd),
                 wpe=nn.Embedding(config.block_size, config.n_embd),
                 h=nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
                 ln_f=nn.LayerNorm(config.n_embd),
-            )
-        )
+            ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         self.transformer.wte.weight = self.lm_head.weight
 
@@ -125,9 +131,12 @@ class Transformer(nn.Module):
 
         pos = torch.arange(past_len, past_len + t, dtype=torch.long, device=device).unsqueeze(0)
 
-        tok_emb = self.transformer.wte(idx)
-        pos_emb = self.transformer.wpe(pos)
-        x = tok_emb + pos_emb
+        if self.no_positional:
+            x = self.transformer.wte(idx)
+        else:
+            tok_emb = self.transformer.wte(idx)
+            pos_emb = self.transformer.wpe(pos)
+            x = tok_emb + pos_emb
 
         presents_kv = []
         for i, block in enumerate(self.transformer.h):
