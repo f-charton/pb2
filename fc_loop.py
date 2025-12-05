@@ -204,7 +204,7 @@ if __name__ == '__main__':
     if args.device == "mps":
         torch.mps.manual_seed(args.seed)
 
-    fused = True if args.device == ["cuda", "mps"] else False
+    fused = True if args.device in ["cuda", "mps"] else False
 
     init_distributed_mode(args)
     logger = initialize_exp(args)
