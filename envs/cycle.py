@@ -197,7 +197,7 @@ class CycleEnvironment(BaseEnvironment):
             self.symbols = [str(i) for i in range(base)]
         elif params.encoding_tokens == "adjacency":
             self.tokenizer = DenseTokenizer(params.N, self.data_class,params.nosep, params.pow2base)
-            self.symbols = [str(i) for i in range(2)]
+            self.symbols = [str(i) for i in range(2**params.pow2base)]
         else:
             raise ValueError(f"Invalid encoding: {params.encoding_tokens}")
 

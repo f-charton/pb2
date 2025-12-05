@@ -45,7 +45,7 @@ def get_parser():
     parser.add_argument('--n_layer', type=int, default=4, help="number of layers")
     parser.add_argument('--n_head', type=int, default=4, help="number of heads (in a transformer)")
     parser.add_argument('--n_embd', type=int, default=128, help="number of feature channels in the model")
-    parser.add_argument('--no_positional', type=bool_flag, default="true", help='no positional embedding')
+    parser.add_argument('--no_positional', type=bool_flag, default="false", help='no positional embedding')
     
     # optimization
     parser.add_argument('--batch_size', type=int, default=32, help="batch size during optimization")
