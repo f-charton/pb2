@@ -188,6 +188,11 @@ class Transformer(nn.Module):
 
             idx = torch.cat((idx, idx_next), dim=1)
 
+            # needed for MPS memory management
+            if idx.device.type == 'mps':
+                torch.mps.synchronize()
+                torch.mps.empty_cache()
+
         self.train()
         return idx
 
