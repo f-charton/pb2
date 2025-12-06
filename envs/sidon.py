@@ -88,6 +88,7 @@ class SidonSetDataPoint(DataPoint):
         """
         Compute optional features to give more signal to the transformer
         """
+        self.features = ",".join(map(str, self.val))
         pass
 
 
