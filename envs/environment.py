@@ -12,7 +12,7 @@ class DataPoint(ABC):
     def __init__(self):
         super().__init__()
         self.score = -1
-        self.features = []
+        self.features = ""
 
     @abstractmethod
     def calc_score(self):
