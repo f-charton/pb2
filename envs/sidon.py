@@ -498,6 +498,10 @@ class SidonSetDataPoint(DataPoint):
         best_gain = None
         assert isinstance(self.val,list)
         v = self.val
+        if len(self.val) == 1:
+            assert self._current_collisions == 0, self.diffs_count
+            assert self.score > 0, score
+            return
 
 
         if self.hard and self.score > 0:
@@ -594,7 +598,7 @@ class SidonSetEnvironment(BaseEnvironment):
         self.data_class.delete_prob = float(params.delete_prob)
         self.data_class.shift_prob  = float(params.shift_prob)
 
-        self.tokenizer = SidonTokenizer(params.N, self.data_class,nosep=params.nosep,base=params.base)
+        self.tokenizer = SidonTokenizer(int(params.N), self.data_class,nosep=params.nosep,base=params.base)
         self.symbols = [str(i) for i in range(params.base)]
         self.symbols.extend(BaseEnvironment.SPECIAL_SYMBOLS)
 

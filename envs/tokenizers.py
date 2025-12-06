@@ -209,27 +209,29 @@ class DenseTokenizer(Tokenizer):
         return super().decode_batch(data, pars)
 
 class SidonTokenizer(Tokenizer):
-    def __init__(self, N, dataclass, nosep, separator :str = "SEP", base: int = 10):
+    def __init__(self, N, dataclass, nosep, base, separator :str = "SEP"):
         self.N = N
         self.dataclass =  dataclass
         self.nosep = nosep
         self.separator = separator
+        self.base = base
+        print("HERE base", self.base)
 
-    def encode(self, sidonset, base=10, reverse=False):
+    def encode(self, sidonset, reverse=False):
         w = []
         val = sidonset.val
         for el in val:
             v = el
             curr_w = []
             while v > 0:
-                curr_w.append(str(v%base))
-                v=v//base
+                curr_w.append(str(v%self.base))
+                v=v//self.base
             w.extend(curr_w)
             if not self.nosep:
                 w.append(self.separator)
         return w
 
-    def decode(self, lst, base=10, reverse=False):
+    def decode(self, lst, reverse=False):
         """
         Create a SidonSetDataPoint from a list
         """
@@ -248,26 +250,33 @@ class SidonTokenizer(Tokenizer):
         result = []
         try:
             for sub_list in sub_lists:
-                if base <= 36:
+                if self.base <= 36:
                     #36 is the maximum supported by the int method, suprisingly
                     num_str = ''.join(sub_list)
-                    num = int(num_str, base)
+                    num = int(num_str, self.base)
                 else:
                     #fallback to an explicit method
                     num = 0
                     for el in sub_list:
                         v =int(el)
-                        if v < 0 or v >= base:
-                            raise ValueError(f"Digit {v} out of range for base {base}")
-                        num = num * base + v
+                        if v < 0 or v >= self.base:
+                            raise ValueError(f"Digit {v} out of range for self.base {self.base}")
+                        num = num * self.base + v
+                    print("HERE num", num)
                 if num > self.N:
+                    print("HERE num pas ouf")
                     # return None #with this option, as soon as the model outputs a number above self.N we discard the full sequence
                     continue #at least for debug this option is a bit softer when the model is at the beginning of training and allows it to only remove the element that shouldn't be there,
                 result.append(num)
+                print("HERE result",result)
         except ValueError as e:
             print(f"Value error in the generation {e}")
             return None
         val = sorted(result)
-        assert len(val) > 0, sub_lists
+        assert len(val) > 0, (sub_lists,lst)
         sidonpoint = self.dataclass(val=val,init=True)
         return sidonpoint
+
+    # stupid but needed to please PoolExectutor
+    def decode_batch(self, data, pars=None):
+        return super().decode_batch(data, pars)
