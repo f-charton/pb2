@@ -52,7 +52,6 @@ class BaseEnvironment(object):
     SPECIAL_SYMBOLS = ["SEP","EOS","PAD","BOS"]
 
     def __init__(self, params):
-        self.symbols = []
         return 
     
     def read_data(self, input_file):

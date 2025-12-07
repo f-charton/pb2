@@ -183,25 +183,25 @@ class SquareDataPoint(CycleDataPoint):
 
 
 class CycleEnvironment(BaseEnvironment):
+    # this problem lives in N^2, so we can use k=2
+    # this problem is symmetric, so we can use is_adj_matrix_symmetric=True
+    k = 2
+    is_adj_matrix_symmetric = True
     def __init__(self, params):
         super().__init__(params)
         self.data_class.N = params.N
         self.data_class.HARD = params.hard
         if params.encoding_tokens == "edge_single_token":
-            base = params.N * (params.N - 1) // 2
-            self.tokenizer = SparseTokenizer(params.N, self.data_class)
-            self.symbols = [str(i) for i in range(base)]
-        elif params.encoding_tokens == "edge_double_tokens":
-            base = params.N
-            self.tokenizer = EdgeTokenizer(params.N, self.data_class,params.nosep)
-            self.symbols = [str(i) for i in range(base)]
+            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1)
+        elif params.encoding_tokens == "edge_double_tokens_column_wise":
+            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=2)
+        elif params.encoding_tokens == "edge_double_tokens_row_wise":
+            self.tokenizer = EdgeTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, params.nosep)
         elif params.encoding_tokens == "adjacency":
-            self.tokenizer = DenseTokenizer(params.N, self.data_class,params.nosep, params.pow2base)
-            self.symbols = [str(i) for i in range(2**params.pow2base)]
+            self.tokenizer = DenseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, params.nosep, params.pow2base)
         else:
             raise ValueError(f"Invalid encoding: {params.encoding_tokens}")
 
-        self.symbols.extend(BaseEnvironment.SPECIAL_SYMBOLS)
 
     @staticmethod
     def register_args(parser):
@@ -213,7 +213,6 @@ class CycleEnvironment(BaseEnvironment):
         parser.add_argument('--encoding_tokens', type=str, default="edge_single_token", help='toknized by edge or adjacency matrix')
         parser.add_argument('--nosep', type=bool_flag, default="false", help='separator (for adjacency and double edge)')
         parser.add_argument('--pow2base', type=int, default=1, help='Number of adjacency entries to code together')
-        
 
 class SquareEnvironment(CycleEnvironment):
     data_class = SquareDataPoint

@@ -83,25 +83,27 @@ class Block(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, config, pad_token_id, eos_token_id):
+    def __init__(self, config, pad_token_id, eos_token_id, token_embeddings=1):
         super().__init__()
         self.no_positional = config.no_positional
         self.block_size = config.block_size
-        if self.no_positional:
-            self.transformer = nn.ModuleDict(dict(
-                wte=nn.Embedding(config.vocab_size, config.n_embd),
-                h=nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
-                ln_f=nn.LayerNorm(config.n_embd),
-            ))
-        else:
-            self.transformer = nn.ModuleDict(dict(
-                wte=nn.Embedding(config.vocab_size, config.n_embd),
-                wpe=nn.Embedding(config.block_size, config.n_embd),
-                h=nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
-                ln_f=nn.LayerNorm(config.n_embd),
-            ))
-        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
-        self.transformer.wte.weight = self.lm_head.weight
+        self.token_embeddings = token_embeddings
+
+        self.wte = nn.ModuleList([
+            nn.Embedding(config.vocab_size, config.n_embd)
+            for _ in range(token_embeddings)
+        ])
+        if not self.no_positional:
+            self.wpe = nn.Embedding(config.block_size, config.n_embd)
+        self.h = nn.ModuleList([Block(config) for _ in range(config.n_layer)])
+        self.ln_f = nn.LayerNorm(config.n_embd)
+        self.lm_head = nn.ModuleList([
+            nn.Linear(config.n_embd, config.vocab_size, bias=False)
+            for _ in range(token_embeddings)
+        ])
+
+        for i in range(token_embeddings):
+            self.wte[i].weight = self.lm_head[i].weight
 
         self.apply(self._init_weights)
         for pn, p in self.named_parameters():
@@ -123,7 +125,7 @@ class Transformer(nn.Module):
 
     def forward(self, idx, targets=None, past_kv=None):
         device = idx.device
-        b, t = idx.size()
+        b, t, k = idx.size()  # b: batch size, t: sequence length, k: token embeddings
 
         past_len = 0
         if past_kv is not None and len(past_kv) > 0 and past_kv[0] is not None:
@@ -131,26 +133,27 @@ class Transformer(nn.Module):
 
         pos = torch.arange(past_len, past_len + t, dtype=torch.long, device=device).unsqueeze(0)
 
-        if self.no_positional:
-            x = self.transformer.wte(idx)
-        else:
-            tok_emb = self.transformer.wte(idx)
-            pos_emb = self.transformer.wpe(pos)
-            x = tok_emb + pos_emb
-
+        x = 0
+        for i in range(self.token_embeddings):
+            x += self.wte[i](idx[:, :, i])
+        if not self.no_positional:
+            x += self.wpe(pos)
+    
         presents_kv = []
-        for i, block in enumerate(self.transformer.h):
+        for i, block in enumerate(self.h):
             pkv = None if past_kv is None else past_kv[i]
             x, present_kv = block(x, past_kv=pkv)
             presents_kv.append(present_kv)
 
-        x = self.transformer.ln_f(x)
+        x = self.ln_f(x)  # (B, T, C)
 
         if targets is not None:
-            logits = self.lm_head(x)
+            # Project x through each lm_head and stack: (B, T, K, V)
+            logits = torch.stack([self.lm_head[i](x) for i in range(self.token_embeddings)], dim=2)
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=self.pad_token_id)
         else:
-            logits = self.lm_head(x[:, [-1], :])
+            # Project x through each lm_head and stack: (B, 1, K, V)
+            logits = torch.stack([self.lm_head[i](x[:, [-1], :]) for i in range(self.token_embeddings)], dim=2)
             loss = None
 
         return logits, loss, presents_kv
@@ -159,10 +162,12 @@ class Transformer(nn.Module):
     def generate(self, idx, max_new_tokens, temperature=1.0, do_sample=False, top_k=None):
         self.eval()
 
+        B, _, K = idx.shape
+
         past_kv = None
         for i in range(max_new_tokens):
-            last_tokens = idx[:, -1].unsqueeze(-1)
-            finished_mask = torch.zeros_like(last_tokens, dtype=torch.bool) | (last_tokens == self.eos_token_id) | (last_tokens == self.pad_token_id)
+            last_tokens = idx[:, -1, :].unsqueeze(1)
+            finished_mask = (last_tokens == self.eos_token_id) | (last_tokens == self.pad_token_id)
 
             if torch.all(finished_mask):
                 idx_next = torch.full_like(finished_mask, self.pad_token_id, dtype=torch.long)
@@ -170,20 +175,18 @@ class Transformer(nn.Module):
                 if i == 0 or past_kv is None:
                     idx_cond = idx
                 else:
-                    idx_cond = idx[:, -1].unsqueeze(1)
+                    idx_cond = idx[:, -1, :].unsqueeze(1)
                 logits, _, past_kv = self(idx_cond, past_kv=past_kv)
-                if temperature == 0.0:
-                    idx_next = torch.argmax(logits, dim=-1)
+                logits = logits[:, -1, :, :]
+                logits = logits / temperature
+                if top_k is not None:
+                    v, _ = torch.topk(logits, top_k)
+                    logits[logits < v[:, :, -1:]] = -float("inf")
+                probs = F.softmax(logits, dim=-1)
+                if do_sample:
+                    idx_next = torch.multinomial(probs.view(B * K, -1), num_samples=1).view(B, K).unsqueeze(1)
                 else:
-                    logits = logits[:, -1, :] / temperature
-                    if top_k is not None:
-                        v, _ = torch.topk(logits, top_k)
-                        logits[logits < v[:, [-1]]] = -float("inf")
-                    probs = F.softmax(logits, dim=-1)
-                    if do_sample:
-                        idx_next = torch.multinomial(probs, num_samples=1)
-                    else:
-                        _, idx_next = torch.topk(probs, k=1, dim=-1)
+                    _, idx_next = torch.topk(probs, k=1, dim=-1).squeeze(-1).unsqueeze(1)
                 idx_next = torch.where(finished_mask, self.pad_token_id, idx_next)
 
             idx = torch.cat((idx, idx_next), dim=1)

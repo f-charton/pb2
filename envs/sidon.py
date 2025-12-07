@@ -599,9 +599,8 @@ class SidonSetEnvironment(BaseEnvironment):
         self.data_class.delete_prob = float(params.delete_prob)
         self.data_class.shift_prob  = float(params.shift_prob)
 
-        self.tokenizer = SidonTokenizer(int(params.N), self.data_class,nosep=params.nosep,base=params.base)
-        self.symbols = [str(i) for i in range(params.base)]
-        self.symbols.extend(BaseEnvironment.SPECIAL_SYMBOLS)
+        self.tokenizer = SidonTokenizer(self.data_class, int(params.N), params.nosep, params.base, self.SPECIAL_SYMBOLS, separator="SEP")
+
 
 
     @staticmethod

@@ -3,6 +3,7 @@ from slurm import init_signal_handler, init_distributed_mode
 from utils import bool_flag, initialize_exp
 from logging import getLogger
 import numpy as np
+# import multiprocessing as mp
 import time
 import torch
 from envs.environment import do_score, do_stats
@@ -82,9 +83,8 @@ def get_parser():
 
 def detokenize(data, args, env):
     res = []
+    pars = env.tokenizer.dataclass._save_class_params()
     if args.process_pool:
-        pars = env.tokenizer.dataclass._save_class_params()
-        
         BATCH = args.gen_batch_size
         batch_counts = [BATCH] * (len(data) // BATCH)
         rem = len(data) % BATCH
@@ -97,6 +97,7 @@ def detokenize(data, args, env):
             end = start + batch_size
             data_slices.append(data[start:end])
             start = end
+        # with ProcessPoolExecutor(max_workers=min(20, args.num_workers), mp_context=mp.get_context('spawn')) as executor:
         with ProcessPoolExecutor(max_workers=min(20, args.num_workers)) as executor:
             # map returns lists; stream them to avoid a giant materialization
             for chunk in executor.map(env.tokenizer.decode_batch, data_slices,repeat(pars, len(data_slices))):
@@ -156,7 +157,7 @@ def train(model, args, loader, optim, test_dataset, current_best_loss=None):
                 model_path = os.path.join(args.dump_path, "model.pt")
                 optimizer_path = os.path.join(args.dump_path, "optimizer.pt")
                 torch.save(model.state_dict(), model_path)
-                torch.save(optimizer.state_dict(), optimizer_path)
+                torch.save(optim.state_dict(), optimizer_path)
                 logger.info(f"test loss {test_loss} is the best so far, saved model to {model_path}")
                 best_loss = test_loss
             curr_loss = 0
@@ -164,8 +165,7 @@ def train(model, args, loader, optim, test_dataset, current_best_loss=None):
     return best_loss
     
 
-def sample(model, args, stoi, itos, env):
-    eos_token_id = stoi["EOS"]
+def sample(model, args, stoi, env):
     bos_token_id = stoi["BOS"]
 
     new_words = []
@@ -176,16 +176,13 @@ def sample(model, args, stoi, itos, env):
         if i % 100 == 0 :
             logger.info(f'{i*sample_batch_size} / {todo * sample_batch_size} samples generated')
     
-        X_init = torch.full((sample_batch_size, 1), bos_token_id, dtype=torch.long).to(args.device)
+        X_init = torch.full((sample_batch_size, 1, args.token_embeddings), bos_token_id, dtype=torch.long).to(args.device)
         top_k = args.top_k if args.top_k != -1 else None
-        X_samp = model.generate(X_init, args.max_len + 1, temperature = args.temperature, top_k=top_k, do_sample=True).to('cpu')
+        X_samp = model.generate(X_init, args.max_len + 1, temperature = args.temperature, top_k=top_k, do_sample=True).to('cpu')  # (B, K, T)
         
         for j in range(X_samp.size(0)):
-            row = X_samp[j, 1:].tolist() # remove BOS token
-            crop_index = row.index(eos_token_id) if eos_token_id in row else len(row)
-            row = row[:crop_index]
-            word_samp = [itos[i] for i in row]
-            new_words.append(word_samp)
+            row = X_samp[j, 1:, :].tolist() # remove BOS token
+            new_words.append(row)
 
     return detokenize(new_words, args, env)
 
@@ -224,14 +221,15 @@ if __name__ == '__main__':
     # system inits
     torch.manual_seed(args.seed)
 
-    args.vocab_size = len(env.symbols)
+    args.vocab_size = len(env.tokenizer.itos)
 
     args.block_size = args.max_len + 2
-    stoi = {ch: i for i, ch in enumerate(env.symbols)}
-    itos = {i: ch for ch, i in stoi.items()}
+    args.token_embeddings = env.tokenizer.token_embeddings
+    stoi = env.tokenizer.stoi
+    itos = env.tokenizer.itos
 
     #Initialize transformer
-    model = Transformer(args, stoi["PAD"],stoi["EOS"])
+    model = Transformer(args, stoi["PAD"],stoi["EOS"], token_embeddings=args.token_embeddings)
     model.to(args.device)
     model_path = os.path.join(args.dump_path, "model.pt")
     optimizer_path = os.path.join(args.dump_path, "optimizer.pt")
@@ -271,12 +269,9 @@ if __name__ == '__main__':
         # tokenize 
         train_words = [env.tokenizer.encode(d) for d in train_set]
         test_words = [env.tokenizer.encode(d) for d in test_set]
-        print("HERE some train words",train_words[:5])
-        train_words = [torch.LongTensor([stoi[ch] for ch in w]) for w in train_words]
-        test_words = [torch.LongTensor([stoi[ch] for ch in w]) for w in test_words]
         # data loaders
-        train_dataset = CharDataset(train_words, env.symbols, args.max_len, stoi)
-        test_dataset = CharDataset(test_words, env.symbols, args.max_len, stoi)
+        train_dataset = CharDataset(train_words, args.max_len, stoi, token_embeddings=args.token_embeddings)
+        test_dataset = CharDataset(test_words, args.max_len, stoi, token_embeddings=args.token_embeddings)
 
         if args.device == "cuda":
             logger.info(f"Memory allocated: {torch.cuda.memory_allocated(0)/(1024*1024):.2f}MB, reserved: {torch.cuda.memory_reserved(0)/(1024*1024):.2f}MB")
@@ -290,7 +285,7 @@ if __name__ == '__main__':
         if args.always_reload:
             reload_model_optimizer(args, model, optimizer)
 
-        new_data = sample(model, args, stoi, itos, env) # should the token decoider be in the dataset?
+        new_data = sample(model, args, stoi, env) # should the token decoider be in the dataset?
         logger.info(f"New data detokenized length is {len(new_data)}")
 
         if args.device == "cuda":
@@ -308,4 +303,3 @@ if __name__ == '__main__':
         n_epoch += 1
         with open(epoch_file, "w") as f:
             f.write(str(n_epoch))
-    

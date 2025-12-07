@@ -121,13 +121,13 @@ def load_initial_data(args, classname):
 
 
 class CharDataset(Dataset):
-    def __init__(self, encoded_data, chars, max_len, stoi):
+    def __init__(self, encoded_data, max_len, stoi, token_embeddings):
         self.encoded_data = encoded_data
-        self.chars = chars
         self.max_len = max_len
         self.bos_token_id = stoi["BOS"]
         self.eos_token_id = stoi["EOS"]
         self.pad_token_id = stoi["PAD"]
+        self.token_embeddings = token_embeddings
 
     def __len__(self):
         return len(self.encoded_data)
@@ -136,19 +136,17 @@ class CharDataset(Dataset):
         return self.encoded_data[idx]
 
     def collate_fn(self, batch):
-        x = torch.full((len(batch), self.max_len + 2), self.pad_token_id, dtype=torch.long)
-        y = torch.full((len(batch), self.max_len + 2), self.pad_token_id, dtype=torch.long)
-        x[:, 0] = self.bos_token_id
-        for i, ix in enumerate(batch):
-            x[i, 1 : len(ix) + 1] = ix
-            y[i, : len(ix)] = ix
-            x[i, len(ix) + 1] = self.eos_token_id
-            y[i, len(ix)] = self.eos_token_id
-        valid_col = (x != self.pad_token_id).any(dim=0)
-        last_col = valid_col.nonzero(as_tuple=False)[-1].item() + 1
-        x = x[:, :last_col]
-        y = y[:, :last_col]
-        return x, y
+        x = np.full((len(batch), self.max_len + 2, self.token_embeddings), self.pad_token_id, dtype=np.int32)
+        x[:, 0, :] = self.bos_token_id
+
+        for i, el in enumerate(batch):
+            x[i, 1 : el.shape[0] + 1, :] = el
+            x[i, el.shape[0] + 1, :] = self.eos_token_id
+        valid_col = (x != self.pad_token_id).any(axis=(0, 2))
+        last_col = np.nonzero(valid_col)[0][-1] + 1
+        x = x[:, :last_col, :]
+        y = np.concatenate([x[:, 1:, :], np.full((len(batch), 1, self.token_embeddings), self.pad_token_id, dtype=x.dtype)], axis=1)
+        return torch.LongTensor(x), torch.LongTensor(y)
 
 # -----------------------------------------------------------------------------
 
