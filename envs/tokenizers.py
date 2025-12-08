@@ -37,7 +37,8 @@ class Tokenizer(ABC):
         out = []
         if pars is not None:
             self.dataclass._update_class_params(pars)
-        for lst in data:
+        for _,lst in enumerate(data):
+            # assert len(lst) > 0, (i,data[i], data)
             l = self.decode(lst)
             if l is not None:
                 out.append(l)
@@ -306,8 +307,6 @@ class SidonTokenizer(Tokenizer):
         self.separator = separator
         self.base = base
         self.token_embeddings = 1
-
-        print("HERE base", self.base)
         self.stoi, self.itos = {}, {}
         for idx, el in enumerate(range(self.base)):
             self.stoi[el] = idx
@@ -366,18 +365,20 @@ class SidonTokenizer(Tokenizer):
                         if v < 0 or v >= self.base:
                             raise ValueError(f"Digit {v} out of range for self.base {self.base}")
                         num = num * self.base + v
-                    print("HERE num", num)
+                    # print("HERE num", num)
                 if num > self.N:
                     print("HERE num pas ouf")
                     # return None #with this option, as soon as the model outputs a number above self.N we discard the full sequence
                     continue #at least for debug this option is a bit softer when the model is at the beginning of training and allows it to only remove the element that shouldn't be there,
                 result.append(num)
-                print("HERE result",result)
+                # print("HERE result",result)
         except ValueError as e:
             print(f"Value error in the generation {e}")
             return None
+        if len(result) == 0:
+            print(f"Empty decoded list for {lst} with sublists {sub_lists}.")
+            return None
         val = sorted(result)
-        assert len(val) > 0, (sub_lists,lst)
         sidonpoint = self.dataclass(val=val,init=True)
         return sidonpoint
 

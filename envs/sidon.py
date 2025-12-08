@@ -1,5 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
+import numpy as np
 from logging import getLogger
 from typing import Dict, List, Tuple, Optional
 from envs.environment import BaseEnvironment, DataPoint
@@ -29,7 +30,7 @@ class SidonSetDataPoint(DataPoint):
     """
     Candidate Sidon set. The candidate is a Sidon set if the number of collisions is zero.
     """
-
+    random_greedy_search = True
     def __init__(self, val:Optional[List]=None, init=False):
         super().__init__()
 
@@ -53,7 +54,7 @@ class SidonSetDataPoint(DataPoint):
                 else:
                     target_k = None
                 if self.init_method == "random_greedy":
-                    self.val = self._seed_random_greedy(target_k)
+                    self.val, _ = self._seed_random_greedy(target_k)
                 elif self.init_method == "mian_chowla":
                     self.val = self._seed_mian_chowla()
                 else:
@@ -117,6 +118,20 @@ class SidonSetDataPoint(DataPoint):
             raise RuntimeError("score negative even after local_search, should not be possible")
         if len(self.val) == 0:
             logger.info(f"Error no val with {self.diffs_count()}")
+
+        if self.random_greedy_search:
+            # old_len = self.score # debug
+            A, added = self._seed_random_greedy(2*np.sqrt(self.N),init_val=self.val)
+            self.val = A
+            self.score += self.M*added
+            # current_score = self.score # debug
+            # self.calc_score()  # debug
+            # assert self.score == current_score, (self.score, current_score, added, len(A), old_len) # debug
+            self.calc_features()
+            if self.score < 0:
+                raise RuntimeError("score negative even after local_search random greedy, should not be possible")
+            return
+
 
         # old_score = self.score # debug
         # print("HERE OLD", old_score)
@@ -197,15 +212,24 @@ class SidonSetDataPoint(DataPoint):
 
 
 
-    def _seed_random_greedy(self, target_k: Optional[int]) -> List[int]:
+    def _seed_random_greedy(self, target_k: Optional[int], init_val: Optional[List[int]]=None) -> Tuple[List[int],int]:
         """
         Random order through [0..N], uses the fact that a set is Sidon if
         all the positive differences a-x for a>x are distinct (here uses |x-a|)
         """
         order = list(range(self.N + 1))
         random.shuffle(order)
-        A: List[int] = []
+        A = sorted(init_val.copy()) if init_val is not None else []
+
         used_diff = [False] * (self.N + 1)  #Store the positive differences
+        for i in range(len(A)):
+            for j in range(i+1, len(A)):
+                d = A[j] - A[i]
+                if d == 0 or used_diff[d]:
+                    raise ValueError("init_val already has a collision (not Sidon)")
+                used_diff[d] = True
+
+        added = 0
         for x in order:
             ok = True
             local = set()
@@ -220,10 +244,12 @@ class SidonSetDataPoint(DataPoint):
                 for a in A:
                     used_diff[abs(x - a)] = True
                 bisect.insort(A, x)
+                added += 1
                 if target_k is not None and len(A) >= target_k:
                     break
         # print(f"Here generated A {A}")
-        return A
+        assert len(A) > 0
+        return sorted(A), added
 
     def _seed_mian_chowla(self) -> List[int]:
         """
@@ -500,8 +526,8 @@ class SidonSetDataPoint(DataPoint):
         assert isinstance(self.val,list)
         v = self.val
         if len(self.val) == 1:
-            assert self._current_collisions == 0, self.diffs_count
-            assert self.score > 0, score
+            assert self._current_collisions() == 0, self.diffs_count
+            assert self.score > 0, self.score
             return
 
 
@@ -561,11 +587,11 @@ class SidonSetDataPoint(DataPoint):
 
     @classmethod
     def _update_class_params(cls,pars):
-        cls.N, cls.M, cls.hard, cls.insert_prob, cls.delete_prob, cls.shift_prob, cls.temp, cls.temp_decay, cls.init_method, cls.init_k, cls.jitter_init, cls.steps = pars
+        cls.N, cls.M, cls.hard, cls.insert_prob, cls.delete_prob, cls.shift_prob, cls.temp, cls.temp_decay, cls.init_method, cls.init_k, cls.jitter_init, cls.steps, cls.random_greedy_search = pars
 
     @classmethod
     def _save_class_params(cls):
-        return (cls.N, cls.M, cls.hard, cls.insert_prob, cls.delete_prob, cls.shift_prob, cls.temp, cls.temp_decay, cls.init_method, cls.init_k, cls.jitter_init, cls.steps)
+        return (cls.N, cls.M, cls.hard, cls.insert_prob, cls.delete_prob, cls.shift_prob, cls.temp, cls.temp_decay, cls.init_method, cls.init_k, cls.jitter_init, cls.steps, cls.random_greedy_search)
 
     @classmethod
     def _batch_generate_and_score(cls,n, pars=None):
@@ -598,6 +624,7 @@ class SidonSetEnvironment(BaseEnvironment):
         self.data_class.insert_prob = float(params.insert_prob)
         self.data_class.delete_prob = float(params.delete_prob)
         self.data_class.shift_prob  = float(params.shift_prob)
+        self.data_class.random_greedy_search = params.random_greedy_search
 
         self.tokenizer = SidonTokenizer(self.data_class, int(params.N), params.nosep, params.base, self.SPECIAL_SYMBOLS, separator="SEP")
 
@@ -621,4 +648,5 @@ class SidonSetEnvironment(BaseEnvironment):
         parser.add_argument("--init_k", type=int, default=-1, help="by default size of the Sidon set that one tries to construct in the generation")
         parser.add_argument("--jitter_init", type=bool_flag, default="true", help="if generation is evenly spaced, should there be random displacements")
         parser.add_argument('--sidon_steps', type=int, default=2000, help='number of steps in local search')
-        parser.add_argument('--nosep', type=bool_flag, default="false", help='separator (for adjacency and double edge)')
+        parser.add_argument('--nosep', type=bool_flag, default="false", help='separator')
+        parser.add_argument("--random_greedy_search",type=bool_flag, default="true", help='use a random greedy search for the local search instead of insert / delete / shift moves')
