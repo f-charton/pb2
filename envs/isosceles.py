@@ -1,7 +1,7 @@
 from envs.environment import DataPoint, BaseEnvironment
 import numpy as np
 from numba import njit
-from .tokenizers import SparseTokenizer, EdgeTokenizer, DenseTokenizer
+from .tokenizers import SparseTokenizer, DenseTokenizer
 from utils import bool_flag
 
 
@@ -239,12 +239,12 @@ class NoIsoscelesEnvironment(BaseEnvironment):
         super().__init__(params)
         self.data_class.N = params.N
         self.data_class.HARD = params.hard
-        if params.encoding_tokens == "edge_single_token":
-            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1)
-        elif params.encoding_tokens == "edge_double_tokens_column_wise":
-            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=2)
-        elif params.encoding_tokens == "edge_double_tokens_row_wise":
-            self.tokenizer = EdgeTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, params.nosep)
+        if params.encoding_tokens == "single_integer":
+            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements)
+        elif params.encoding_tokens == "vector_k_integers":
+            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=self.k, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements)
+        elif params.encoding_tokens == "sequence_k_tokens":
+            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, nosep=params.nosep)
         elif params.encoding_tokens == "adjacency":
             self.tokenizer = DenseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, params.nosep, params.pow2base)
         else:
@@ -258,7 +258,8 @@ class NoIsoscelesEnvironment(BaseEnvironment):
         """
         parser.add_argument('--N', type=int, default=30, help='Number of vertices in the K-cycle-free graph')
         parser.add_argument('--hard', type=bool_flag, default="true", help='whether only K-cycle-free graphs are accepted')
-        parser.add_argument('--encoding_tokens', type=str, default="edge_single_token", help='toknized by edge or adjacency matrix')
+        parser.add_argument('--encoding_tokens', type=str, default="single_integer", help='single_integer/sequence_k_tokens/vector_k_integers/adjacency')
+        parser.add_argument('--shuffle_elements', type=bool_flag, default="false", help="shuffle the elements of the adjacency matrix")
         parser.add_argument('--nosep', type=bool_flag, default="false", help='separator (for adjacency and double edge)')
         parser.add_argument('--pow2base', type=int, default=1, help='Number of adjacency entries to code together')
 

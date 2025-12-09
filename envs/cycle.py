@@ -1,15 +1,15 @@
-from envs.environment import DataPoint, BaseEnvironment
+from envs.environment import DataPoint, BaseEnvironment, sort_graph_based_on_degree
 import math
 import numpy as np
 from utils import bool_flag
-from .tokenizers import SparseTokenizer, DenseTokenizer, EdgeTokenizer
-from utils import bool_flag
+from .tokenizers import SparseTokenizer, DenseTokenizer
 
 
 
 class CycleDataPoint(DataPoint):
     N = 4
     HARD = True
+    SORT_MATRIX_BY_DEGREE = False
 
     def __init__(self, init=False):
         super().__init__()
@@ -18,6 +18,8 @@ class CycleDataPoint(DataPoint):
         if init:
             self._add_edges_greedily()
             self.calc_score()
+            if self.SORT_MATRIX_BY_DEGREE:
+                self.matrix = sort_graph_based_on_degree(self.matrix)
             self.calc_features()
 
     def calc_score(self):
@@ -87,16 +89,19 @@ class CycleDataPoint(DataPoint):
         self._add_edges_greedily()
         self._cycles_computation()
         self.calc_score()
+        if self.SORT_MATRIX_BY_DEGREE:
+            self.matrix = sort_graph_based_on_degree(self.matrix)
         self.calc_features()
 
     @classmethod
     def _update_class_params(self,pars):
         self.N = pars[0]
         self.HARD = pars[1]
+        self.SORT_MATRIX_BY_DEGREE = pars[2]
 
     @classmethod
     def _save_class_params(self):
-        return (self.N, self.HARD)
+        return (self.N, self.HARD, self.SORT_MATRIX_BY_DEGREE)
 
     @classmethod
     def _batch_generate_and_score(cls,n, pars=None):
@@ -191,12 +196,13 @@ class CycleEnvironment(BaseEnvironment):
         super().__init__(params)
         self.data_class.N = params.N
         self.data_class.HARD = params.hard
-        if params.encoding_tokens == "edge_single_token":
-            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1)
-        elif params.encoding_tokens == "edge_double_tokens_column_wise":
-            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=2)
-        elif params.encoding_tokens == "edge_double_tokens_row_wise":
-            self.tokenizer = EdgeTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, params.nosep)
+        self.data_class.SORT_MATRIX_BY_DEGREE = params.sort_matrix_by_degree
+        if params.encoding_tokens == "single_integer":
+            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements)
+        elif params.encoding_tokens == "vector_k_integers":
+            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=self.k, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements)
+        elif params.encoding_tokens == "sequence_k_tokens":
+            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, nosep=params.nosep)
         elif params.encoding_tokens == "adjacency":
             self.tokenizer = DenseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, params.nosep, params.pow2base)
         else:
@@ -210,7 +216,9 @@ class CycleEnvironment(BaseEnvironment):
         """
         parser.add_argument('--N', type=int, default=30, help='Number of vertices in the K-cycle-free graph')
         parser.add_argument('--hard', type=bool_flag, default="true", help='whether only K-cycle-free graphs are accepted')
-        parser.add_argument('--encoding_tokens', type=str, default="edge_single_token", help='toknized by edge or adjacency matrix')
+        parser.add_argument('--sort_matrix_by_degree', type=bool_flag, default="false", help="sort the graph node names based on its indegree")
+        parser.add_argument('--encoding_tokens', type=str, default="single_integer", help='single_integer/sequence_k_tokens/vector_k_integers/adjacency')
+        parser.add_argument('--shuffle_elements', type=bool_flag, default="false", help="shuffle the elements of the adjacency matrix")
         parser.add_argument('--nosep', type=bool_flag, default="true", help='separator (for adjacency and double edge)')
         parser.add_argument('--pow2base', type=int, default=1, help='Number of adjacency entries to code together')
 

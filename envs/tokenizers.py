@@ -47,113 +47,98 @@ class Tokenizer(ABC):
 
 
 class SparseTokenizer(Tokenizer):
-    def __init__(self, dataclass, N, k, is_adj_matrix_symmetric, extra_symbols, token_embeddings):
+    def __init__(self, dataclass, N, k, is_adj_matrix_symmetric, extra_symbols, token_embeddings, encoding, shuffle_elements=False, nosep=None):
         self.dataclass = dataclass
         self.N = N
         self.k = k
         self.is_adj_matrix_symmetric = is_adj_matrix_symmetric
-        self.token_embeddings = token_embeddings
-        assert self.token_embeddings == self.k or self.token_embeddings == 1, f"token_embeddings must be 1 or {k}"
-        self.stoi, self.itos = {}, {}
 
-        for idx, el in enumerate(iterate_k_times(self.N, self.k // self.token_embeddings, self.is_adj_matrix_symmetric)):
-            self.stoi[el] = idx
-            self.itos[idx] = el
-        for jdx, el in enumerate(extra_symbols):
-            self.stoi[el] = idx + jdx + 1
-            self.itos[idx + jdx + 1] = el
-
-    def encode(self, graph):
-        w = []
-        for el in iterate_k_times(self.N, self.k, self.is_adj_matrix_symmetric):
-            if graph.matrix[el] == 1:
-                if self.token_embeddings == 1:
-                    w.append([self.stoi[el]])
-                else:
-                    w.append([self.stoi[x] for x in el])
-        w.append([self.stoi["EOS"] for _ in range(self.token_embeddings)])
-        return np.array(w, dtype=np.int32)  # (N_elements, self.token_embeddings)
-
-    def decode(self, ll):
-        # ll size (N_elements, self.token_embeddings)
-        try:
-            graph = self.dataclass()
-            for l in ll:
-                if self.token_embeddings == 1:
-                    el = self.itos[l[0]]
-                    if el == "EOS":
-                        return graph
-                    elif el in ["PAD", "BOS"]:
-                        return None
-                else:
-                    el = tuple([self.itos[x] for x in l])
-                    if any(x == "EOS" for x in el):
-                        return graph
-                    elif any(x in ["PAD", "BOS"] for x in el):
-                        return None
-                if self.is_adj_matrix_symmetric:
-                    if len(set(el)) != len(el):
-                        return None
-                    for permutation in permutations(el):
-                        graph.matrix[permutation] = 1
-                else:
-                    graph.matrix[el] = 1
-        except:
-            return None
-    # stupid but needed to please PoolExectutor
-    def decode_batch(self, data, pars=None):
-        return super().decode_batch(data, pars)
-
-
-class EdgeTokenizer(Tokenizer):
-    def __init__(self, dataclass, N, k, is_adj_matrix_symmetric, extra_symbols, nosep):
-        self.dataclass = dataclass
-        self.N = N
-        self.k = k
-        self.is_adj_matrix_symmetric = is_adj_matrix_symmetric
+        self.use_tuple_vocab = encoding == "single_integer"
+        self.flatten_output = encoding == "sequence_k_tokens"
         self.nosep = nosep
-        self.stoi, self.itos = {}, {}
-        self.token_embeddings = 1
+        self.shuffle_elements = shuffle_elements
 
-        for idx, el in enumerate(range(N)):
-            self.stoi[el] = idx
-            self.itos[idx] = el
+        assert not self.flatten_output or self.nosep is not None
+        
+        expected_emb = 1 if encoding in ["single_integer", "sequence_k_tokens"] else k
+        self.token_embeddings = token_embeddings
+        assert token_embeddings == expected_emb, f"{encoding} requires token_embeddings={expected_emb}"
+        self.stoi, self.itos = {}, {}
+
+        if self.use_tuple_vocab:
+            for idx, el in enumerate(iterate_k_times(N, k, is_adj_matrix_symmetric)):
+                self.stoi[el] = idx
+                self.itos[idx] = el
+        else:
+            for idx in range(N):
+                self.stoi[idx] = idx
+                self.itos[idx] = idx
+        
         for jdx, el in enumerate(extra_symbols):
             self.stoi[el] = idx + jdx + 1
             self.itos[idx + jdx + 1] = el
 
+    def _iter_token_groups(self, ll):
+        if not self.flatten_output:
+            for row in ll:
+                yield list(row)
+        else:
+            flat = [row[0] for row in ll]
+            jump = self.k + (0 if self.nosep else 1)
+            for i in range(0, len(flat), jump):
+                chunk = flat[i:i + jump]
+                if not self.nosep:
+                    if len(chunk) == jump and self.itos[chunk[-1]] == "SEP":
+                        chunk = chunk[:-1]
+                yield chunk
+
     def encode(self, graph):
+        edges = []
         w = []
         for el in iterate_k_times(self.N, self.k, self.is_adj_matrix_symmetric):
             if graph.matrix[el] == 1:
-                w.extend([self.stoi[x] for x in el])
+                edges.append(el)
+
+        if self.shuffle_elements:
+            indices = np.random.permutation(len(edges))
+            edges = [edges[i] for i in indices]
+
+            if self.is_adj_matrix_symmetric and not self.use_tuple_vocab:
+                edges = [tuple(np.random.permutation(list(el))) for el in edges]
+
+        w = []
+        for el in edges:
+            tokens = [self.stoi[el]] if self.use_tuple_vocab else [self.stoi[x] for x in el]
+            if self.flatten_output:
+                w.extend([[t] for t in tokens])
                 if not self.nosep:
-                    w.append(self.stoi["SEP"])
-        w.append(self.stoi["EOS"])
-        return np.array(w, dtype=np.int32).reshape(-1, 1)  # (N_elements * (k if self.nosep else k + 1) + 1, 1)
-    
+                    w.append([self.stoi["SEP"]])
+            else:
+                w.append(tokens)
+        
+        w.append([self.stoi["EOS"]] if self.flatten_output else [self.stoi["EOS"]] * self.token_embeddings)
+        return np.array(w, dtype=np.int32)
+        
+
     def decode(self, ll):
-        # ll size (N_elements * (k if self.nosep else k + 1) + 1, 1)
-        new_ll = []
-        for el in ll:
-            el = self.itos[el[0]]
-            if el == "EOS":
-                break
-            new_ll.append(el)
-        ll = new_ll
-        jump = self.k if self.nosep else self.k + 1
         try:
-            size = len(ll)
             graph = self.dataclass()
-            for start_idx in range(0, size, jump):
-                edge_rep = ll[start_idx : start_idx + jump]
-                if not self.nosep:
-                    if edge_rep[-1] != "SEP":
-                        return graph
-                    edge_rep.pop()
-                if not all(isinstance(x, int) for x in edge_rep):
+            for tokens in self._iter_token_groups(ll):
+                if not tokens:
+                    continue
+                
+                el = self.itos[tokens[0]] if self.use_tuple_vocab else tuple(self.itos[t] for t in tokens)
+                
+                is_eos = el == "EOS" if self.use_tuple_vocab else any(x == "EOS" for x in el)
+                if is_eos:
                     return graph
-                el = tuple(edge_rep)
+
+                is_invalid = (el in ["PAD", "BOS"]) if self.use_tuple_vocab else any(x in ["PAD", "BOS"] for x in el)
+                if is_invalid:
+                    return None
+                
+                if self.flatten_output and not all(isinstance(x, int) for x in el):
+                    return graph
                 if self.is_adj_matrix_symmetric:
                     if len(set(el)) != len(el):
                         return None
@@ -161,10 +146,8 @@ class EdgeTokenizer(Tokenizer):
                         graph.matrix[permutation] = 1
                 else:
                     graph.matrix[el] = 1
-            return graph
         except:
             return None
-
     # stupid but needed to please PoolExectutor
     def decode_batch(self, data, pars=None):
         return super().decode_batch(data, pars)
