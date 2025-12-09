@@ -104,7 +104,8 @@ def do_stats(n_invalid, data):
         else:
             for score, count in counts.items():
                 logger.info(f"Score {score}: Count: {count}")
-    return
+        return {"mean": mean, "median": median, "top_1_percentile": top_1_percentile, "max": max_score}
+    return None
 
 def _do_score(d, always_search:bool = False,pars=None):
     invalid = 0

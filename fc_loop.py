@@ -189,6 +189,16 @@ def sample(model, args, stoi, itos, env, temp):
     return detokenize(new_words, args, env)
 
 
+def write_important_metrics(metrics, epoch, metric_file):
+    if metrics is not None:
+        with open(metric_file, "a") as f:
+            f.write(f"epoch: {epoch}\n")
+            f.write(f"mean: {metrics['mean']}\n")
+            f.write(f"median: {metrics['median']}\n")
+            f.write(f"top_1_percentile: {metrics['top_1_percentile']}\n")
+            f.write(f"max: {metrics['max']}\n")
+
+
 if __name__ == '__main__':
 
     if os.environ.get("MODAL_EXP_ID") is None:
@@ -244,7 +254,7 @@ if __name__ == '__main__':
         model.load_state_dict(reloaded)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay, betas=(0.9, 0.99), eps=1e-8, fused=fused)
     if os.path.isfile(optimizer_path):
-        print("resuming from existing optimizer")
+        logger.info("resuming from existing optimizer")
         if args.device == "cuda":
             reloaded = torch.load(optimizer_path)
         else:
@@ -256,7 +266,7 @@ if __name__ == '__main__':
     test_data_path = os.path.join(args.dump_path, "test_data.pkl")
 
     #log initial stats
-    do_stats(-1,data=train_set)
+    metrics = do_stats(-1,data=train_set)
     temperature = args.temperature
     # Loop of PatternBoost
     best_loss = None
@@ -272,6 +282,10 @@ if __name__ == '__main__':
             temperature = float(f.read())
     else:
         temperature = args.temperature
+
+    metric_file = os.path.join(args.dump_path, "metrics.txt")
+    write_important_metrics(metrics, n_epoch, metric_file)
+
     for epoch in range(n_epoch, args.max_epochs):
         logger.info(f"==== Starting Epoch {n_epoch} =====")
         # tokenize 
@@ -308,7 +322,7 @@ if __name__ == '__main__':
         if inc_temp and args.inc_temp>0.0:
             temperature += args.inc_temp
 
-        do_stats(-1, data=train_set)
+        metrics = do_stats(-1, data=train_set)
     
         n_epoch += 1
         with open(epoch_file, "w") as f:
@@ -316,3 +330,4 @@ if __name__ == '__main__':
         with open(temp_file, "w") as f:
             f.write(str(temperature))
    
+        write_important_metrics(metrics, n_epoch, metric_file)
