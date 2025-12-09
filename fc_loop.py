@@ -55,6 +55,7 @@ def get_parser():
     # evaluation against known "good sequences"
     parser.add_argument('--gen_batch_size', type=int, default=1000, help="generation batch size")
     parser.add_argument('--temperature', type=float, default=1.0, help="temperature")
+    parser.add_argument('--inc_temp', type=float, default=0.0, help="temperature")
     parser.add_argument('--keep_only_unique', type=bool_flag, default="true", help='keep only unique data')
     parser.add_argument("--always_reload", type=bool_flag, default="false",help="reload best model before generation")
 # de
@@ -165,7 +166,8 @@ def train(model, args, loader, optim, test_dataset, current_best_loss=None):
     return best_loss
     
 
-def sample(model, args, stoi, env):
+def sample(model, args, stoi, itos, env, temp):
+    eos_token_id = stoi["EOS"]
     bos_token_id = stoi["BOS"]
 
     new_words = []
@@ -178,7 +180,7 @@ def sample(model, args, stoi, env):
     
         X_init = torch.full((sample_batch_size, 1, args.token_embeddings), bos_token_id, dtype=torch.long).to(args.device)
         top_k = args.top_k if args.top_k != -1 else None
-        X_samp = model.generate(X_init, args.max_len + 1, temperature = args.temperature, top_k=top_k, do_sample=True).to('cpu')  # (B, K, T)
+        X_samp = model.generate(X_init, args.max_len + 1, temperature = temp, top_k=top_k, do_sample=True).to('cpu')
         
         for j in range(X_samp.size(0)):
             row = X_samp[j, 1:, :].tolist() # remove BOS token
@@ -255,7 +257,7 @@ if __name__ == '__main__':
 
     #log initial stats
     do_stats(-1,data=train_set)
-
+    temperature = args.temperature
     # Loop of PatternBoost
     best_loss = None
     epoch_file = os.path.join(args.dump_path, "epoch.txt")
@@ -264,6 +266,12 @@ if __name__ == '__main__':
             n_epoch = int(f.read())
     else:
         n_epoch = 0
+    temp_file = os.path.join(args.dump_path, "temperature.txt")
+    if os.path.isfile(temp_file):
+        with open(temp_file, "r") as f:
+            temperature = float(f.read())
+    else:
+        temperature = args.temperature
     for epoch in range(n_epoch, args.max_epochs):
         logger.info(f"==== Starting Epoch {n_epoch} =====")
         # tokenize 
@@ -284,8 +292,8 @@ if __name__ == '__main__':
         # taking the best model based on the test loss
         if args.always_reload:
             reload_model_optimizer(args, model, optimizer)
-
-        new_data = sample(model, args, stoi, env) # should the token decoider be in the dataset?
+        logger.info(f"Sample with temperature {temperature}")
+        new_data = sample(model, args, stoi, itos, env, temperature) # should the token decoder be in the dataset?
         logger.info(f"New data detokenized length is {len(new_data)}")
 
         if args.device == "cuda":
@@ -296,10 +304,15 @@ if __name__ == '__main__':
         new_data = do_score(new_data,process_pool=args.process_pool,num_workers=args.num_workers,always_search=args.always_search)
 
         #Possible to add another generation method here and mix it before taking the best
-        train_set, test_set = update_datasets(args, new_data, train_set, train_data_path, test_data_path)
-    
+        train_set, test_set, inc_temp = update_datasets(args, new_data, train_set, train_data_path, test_data_path)
+        if inc_temp and args.inc_temp>0.0:
+            temperature += args.inc_temp
+
         do_stats(-1, data=train_set)
     
         n_epoch += 1
         with open(epoch_file, "w") as f:
             f.write(str(n_epoch))
+        with open(temp_file, "w") as f:
+            f.write(str(temperature))
+   

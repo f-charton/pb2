@@ -211,7 +211,7 @@ class CycleEnvironment(BaseEnvironment):
         parser.add_argument('--N', type=int, default=30, help='Number of vertices in the K-cycle-free graph')
         parser.add_argument('--hard', type=bool_flag, default="true", help='whether only K-cycle-free graphs are accepted')
         parser.add_argument('--encoding_tokens', type=str, default="edge_single_token", help='toknized by edge or adjacency matrix')
-        parser.add_argument('--nosep', type=bool_flag, default="false", help='separator (for adjacency and double edge)')
+        parser.add_argument('--nosep', type=bool_flag, default="true", help='separator (for adjacency and double edge)')
         parser.add_argument('--pow2base', type=int, default=1, help='Number of adjacency entries to code together')
 
 class SquareEnvironment(CycleEnvironment):

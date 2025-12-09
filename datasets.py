@@ -78,11 +78,14 @@ def compute_unique_data(old_data, new_data=None):
 
 
 def update_datasets(args, data, train_set, train_path, test_path):
+    inc_temp=False
     if args.keep_only_unique:
         bef = len(data)
         data, _ = compute_unique_data(data)
         aft = len(data)
         logger.info(f"Unique processing: {aft} examples left, {bef-aft} duplicates")
+        if aft / (bef+1) < 0.9:
+            inc_temp = True
     if args.new_proportion > 0.0:
         new_data = select_best(int(args.new_proportion*args.pop_size), data)
     else:
@@ -102,7 +105,7 @@ def update_datasets(args, data, train_set, train_path, test_path):
 
     pickle.dump(test_set, open(test_path, "wb"))
     pickle.dump(train_set, open(train_path, "wb"))
-    return train_set, test_set
+    return train_set, test_set, inc_temp
 
 
 def load_initial_data(args, classname):
@@ -116,7 +119,7 @@ def load_initial_data(args, classname):
         data = generate_and_score(args,classname=classname)
 
         train_set = []
-        train_set, test_set = update_datasets(args, data, train_set,train_data_path, test_data_path)
+        train_set, test_set, _ = update_datasets(args, data, train_set,train_data_path, test_data_path)
     return train_set, test_set
 
 
