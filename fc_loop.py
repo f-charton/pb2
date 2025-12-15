@@ -184,8 +184,6 @@ def sample(model, args, stoi, itos, env, temp, always_search=True):
     todo = args.sample_only // sample_batch_size
     DETOK_CHUNK_SIZE = 10
     
-    pars = env.tokenizer.dataclass._save_class_params()
-    
     work_queue = queue.Queue()
     results_lock = threading.Lock()
     results = []
