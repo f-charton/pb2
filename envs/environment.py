@@ -121,7 +121,7 @@ def _do_score(d, always_search:bool = False,pars=None):
         d.local_search()
     return (d,invalid)
 
-def do_score(data, process_pool: bool = False, num_workers :int = 20, always_search:bool = False):
+def do_score(data, process_pool: bool = False, num_workers: int = 20, always_search: bool = False, executor=None):
     """
     Compute the score of a list of data.
     Can be parallelized with process_pool.
@@ -139,16 +139,20 @@ def do_score(data, process_pool: bool = False, num_workers :int = 20, always_sea
         
         chunksize = max(1, len(data) // (num_workers * 32))
         processed_data = []
-        n_invalid = 0
-        with ProcessPoolExecutor(max_workers=num_workers) as ex:
-            for d, invalid in ex.map(_do_score, data, repeat(always_search), repeat(pars), chunksize=chunksize):
-                # Line below not true for all problems
-                # assert d.score >= 0 # debug
+        
+        if executor is not None:
+            for d, invalid in executor.map(_do_score, data, repeat(always_search), repeat(pars), chunksize=chunksize):
                 processed_data.append(d)
                 n_invalid += invalid
+        else:
+            with ProcessPoolExecutor(max_workers=num_workers) as ex:
+                for d, invalid in ex.map(_do_score, data, repeat(always_search), repeat(pars), chunksize=chunksize):
+                    processed_data.append(d)
+                    n_invalid += invalid
 
-    do_stats(n_invalid, processed_data)
-    return [d for d in processed_data if d.score >= 0]
+    valid_data = [d for d in processed_data if d.score >= 0]
+    
+    return valid_data, n_invalid, processed_data
 
 
 def sort_graph_based_on_degree(adj_matrix):
