@@ -13,11 +13,30 @@ def get_flag_value_from_list(lst, flag, default=None):
             return lst[i + 1]
     return default
 
+
+def args_to_string():
+    args = sys.argv[5:]  # Skip: script, modal, run, --detach, train_remotely.py
+    pairs = []
+    
+    i = 0
+    while i < len(args):
+        if args[i].startswith('--') and i + 1 < len(args) and not args[i + 1].startswith('--'):
+            key = args[i][2:]
+            value = args[i + 1]
+            pairs.append(f"{key}={value}")
+            i += 2
+        else:
+            i += 1
+    
+    return ";".join(pairs)
+
+
 if modal.is_local():
     MODAL_EXP_ID = get_flag_value_from_list(sys.argv, "--exp_id")
+    ARGS = args_to_string()
     if MODAL_EXP_ID is None:
         MODAL_EXP_ID = time.strftime("%Y_%m_%d_%H_%M_%S")
-    APP_NAME = f"pb2_train_{MODAL_EXP_ID}"
+    APP_NAME = f"{ARGS}_{MODAL_EXP_ID}"
 else:
     APP_NAME = ""
 
@@ -36,6 +55,7 @@ image = (
     )
     .pip_install("torch==2.9.0+cu128", index_url="https://download.pytorch.org/whl/cu128")
     .pip_install("numba")
+    .pip_install("psutil")
     .env({"PYTHONPATH": MOUNT_AT})
     .workdir(MOUNT_AT)
     .add_local_dir(local_path=".", remote_path="/workspace", ignore = ["checkpoint/**"])
