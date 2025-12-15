@@ -201,11 +201,11 @@ def write_important_metrics(metrics, epoch, metric_file):
 
 if __name__ == '__main__':
 
-    if os.environ.get("MODAL_EXP_ID") is None:
-        os.environ["MODAL_EXP_ID"] = time.strftime("%Y_%m_%d_%H_%M_%S")
-
     parser = get_parser()
     args = parser.parse_args()
+
+    if os.environ.get("MODAL_EXP_ID") is None:
+        os.environ["MODAL_EXP_ID"] = time.strftime("%Y_%m_%d_%H_%M_%S")
 
     args.device = "cpu" if args.cpu else ("mps" if torch.backends.mps.is_available() else "cuda")
     if args.device == "cuda":
