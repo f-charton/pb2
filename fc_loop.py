@@ -14,8 +14,27 @@ from models.model import  Transformer, evaluate
 from datasets import CharDataset, InfiniteDataLoader, load_initial_data, update_datasets
 import os
 import argparse
+import psutil
+import gc
+import ctypes
+import threading
+import queue
 
 logger = getLogger()
+
+
+# TODO: is this necessary?
+def force_release_memory():
+    # multiple gc.collect() in case of looped calls
+    gc.collect()
+    gc.collect()
+    gc.collect()
+    
+    try:
+        libc = ctypes.CDLL("libc.so.6")
+        libc.malloc_trim(0)
+    except (OSError, AttributeError):
+        pass
 
 
 def get_parser():
@@ -82,28 +101,23 @@ def get_parser():
     return parser
 
 
-def detokenize(data, args, env):
+def detokenize(data, args, env, executor=None):
     res = []
     pars = env.tokenizer.dataclass._save_class_params()
     if args.process_pool:
         BATCH = args.gen_batch_size
-        batch_counts = [BATCH] * (len(data) // BATCH)
-        rem = len(data) % BATCH
-        if rem:
-            batch_counts.append(rem)
-        # Create data slices for each batch
-        data_slices = []
-        start = 0
-        for batch_size in batch_counts:
-            end = start + batch_size
-            data_slices.append(data[start:end])
-            start = end
-        # with ProcessPoolExecutor(max_workers=min(20, args.num_workers), mp_context=mp.get_context('spawn')) as executor:
-        with ProcessPoolExecutor(max_workers=min(20, args.num_workers)) as executor:
-            # map returns lists; stream them to avoid a giant materialization
-            for chunk in executor.map(env.tokenizer.decode_batch, data_slices,repeat(pars, len(data_slices))):
-                if chunk:  # extend incrementally to manage memory
+        data_slices = [data[i:i + BATCH] for i in range(0, len(data), BATCH)]
+        
+        if executor is not None:
+            for chunk in executor.map(env.tokenizer.decode_batch, data_slices, repeat(pars, len(data_slices))):
+                if chunk:
                     res.extend(chunk)
+        else:
+            with ProcessPoolExecutor(max_workers=min(20, args.num_workers)) as ex:
+                # map returns lists; stream them to avoid a giant materialization
+                for chunk in ex.map(env.tokenizer.decode_batch, data_slices, repeat(pars, len(data_slices))):
+                    if chunk:  # extend incrementally to manage memory
+                        res.extend(chunk)
     else:
         res = env.tokenizer.decode_batch(data, pars)
     return res
@@ -166,27 +180,101 @@ def train(model, args, loader, optim, test_dataset, current_best_loss=None):
     return best_loss
     
 
-def sample(model, args, stoi, itos, env, temp):
-    eos_token_id = stoi["EOS"]
+def sample(model, args, stoi, itos, env, temp, always_search=True):
     bos_token_id = stoi["BOS"]
-
-    new_words = []
-
     sample_batch_size = args.gen_batch_size # reduce this if GPU crashes, increase it if sampling is slow
     todo = args.sample_only // sample_batch_size
-    for i in range(todo):
-        if i % 100 == 0 :
-            logger.info(f'{i*sample_batch_size} / {todo * sample_batch_size} samples generated')
+    DETOK_CHUNK_SIZE = 10
     
+    work_queue = queue.Queue()
+    results_lock = threading.Lock()
+    results = []
+    
+    total_invalid = 0
+    all_processed_data = []
+    
+    executor = ProcessPoolExecutor(max_workers=min(20, args.num_workers))
+    
+    def consumer_thread():
+        nonlocal total_invalid
+        try:
+            while True:
+                batches = work_queue.get()
+                
+                if batches is None:
+                    work_queue.task_done()
+                    break
+                
+                all_data = [batch_numpy[j] for batch_numpy in batches for j in range(batch_numpy.shape[0])]
+                del batches  # TODO: is this necessary?
+                
+                detok_results = detokenize(all_data, args, env, executor=executor)
+                del all_data  # TODO: is this necessary?
+                
+                valid_data, n_invalid, processed_data = do_score(
+                    detok_results, 
+                    process_pool=args.process_pool,
+                    num_workers=args.num_workers,
+                    always_search=always_search,
+                    executor=executor
+                )
+                
+                del detok_results  # TODO: is this necessary?
+                
+                with results_lock:
+                    results.extend(valid_data)
+                    total_invalid += n_invalid
+                    all_processed_data.extend(processed_data)
+
+                del valid_data, processed_data  # TODO: is this necessary?
+                
+                work_queue.task_done()
+                gc.collect()  # TODO: is this necessary?
+                
+        except Exception as e:
+            logger.exception(f"Consumer thread error: {e}")
+   
+    consumer = threading.Thread(target=consumer_thread, daemon=True)
+    consumer.start()
+    
+    pending_batches = []
+    
+    for i in range(todo):
+        if i % 100 == 0:
+            with results_lock:
+                scored_so_far = len(results)
+            logger.info(f'{i*sample_batch_size} / {todo * sample_batch_size} samples generated, {scored_so_far} scored')
+
         X_init = torch.full((sample_batch_size, 1, args.token_embeddings), bos_token_id, dtype=torch.long).to(args.device)
         top_k = args.top_k if args.top_k != -1 else None
-        X_samp = model.generate(X_init, args.max_len + 1, temperature = temp, top_k=top_k, do_sample=True).to('cpu')
+        X_samp = model.generate(X_init, args.max_len + 1, temperature=temp, top_k=top_k, do_sample=True)
+        batch_numpy = X_samp[:, 1:, :].cpu().numpy()
+        del X_init, X_samp  # TODO: is this necessary?
         
-        for j in range(X_samp.size(0)):
-            row = X_samp[j, 1:, :].tolist() # remove BOS token
-            new_words.append(row)
+        pending_batches.append(batch_numpy)
+        
+        if len(pending_batches) >= DETOK_CHUNK_SIZE:
+            work_queue.put(pending_batches)            
+            pending_batches = []
+            
+    if pending_batches:
+        work_queue.put(pending_batches)
+    
+    work_queue.put(None)
+    consumer.join()
+    
+    executor.shutdown(wait=True)
+    
+    do_stats(total_invalid, all_processed_data)
+    
+    return results
 
-    return detokenize(new_words, args, env)
+
+def log_resources(label):
+    process = psutil.Process()
+    rss_mb = process.memory_info().rss / (1024 * 1024)
+    cpu_percent = process.cpu_percent()
+    logger.info(f"[{label}] CPU: {cpu_percent:.1f}% | RAM: {rss_mb:.1f}MB")
 
 
 def write_important_metrics(metrics, epoch, metric_file):
@@ -287,12 +375,23 @@ if __name__ == '__main__':
 
     for epoch in range(n_epoch, args.max_epochs):
         logger.info(f"==== Starting Epoch {n_epoch} =====")
+        log_resources(f"Epoch {epoch} START")
+
+        if args.device == "cuda":
+            torch.cuda.empty_cache()
+        elif args.device == "mps":
+            torch.mps.empty_cache()
+        
         # tokenize 
         train_words = [env.tokenizer.encode(d) for d in train_set]
         test_words = [env.tokenizer.encode(d) for d in test_set]
         # data loaders
         train_dataset = CharDataset(train_words, args.max_len, stoi, token_embeddings=args.token_embeddings)
         test_dataset = CharDataset(test_words, args.max_len, stoi, token_embeddings=args.token_embeddings)
+
+        del train_words  # TODO: is this necessary?
+        del test_words  # TODO: is this necessary?
+        gc.collect()  # TODO: is this necessary?
 
         if args.device == "cuda":
             logger.info(f"Memory allocated: {torch.cuda.memory_allocated(0)/(1024*1024):.2f}MB, reserved: {torch.cuda.memory_reserved(0)/(1024*1024):.2f}MB")
@@ -301,23 +400,37 @@ if __name__ == '__main__':
         
         batch_loader = InfiniteDataLoader(train_dataset, batch_size=args.batch_size, pin_memory=True, num_workers=args.num_workers)
         best_loss = train(model, args, batch_loader,optimizer, test_dataset, current_best_loss=best_loss)
+        log_resources(f"Epoch {epoch} AFTER_TRAIN")
+        force_release_memory()
 
         # taking the best model based on the test loss
         if args.always_reload:
             reload_model_optimizer(args, model, optimizer)
         logger.info(f"Sample with temperature {temperature}")
-        new_data = sample(model, args, stoi, itos, env, temperature) # should the token decoder be in the dataset?
-        logger.info(f"New data detokenized length is {len(new_data)}")
 
         if args.device == "cuda":
             torch.cuda.empty_cache()
         elif args.device == "mps":
             torch.mps.empty_cache()
 
-        new_data = do_score(new_data,process_pool=args.process_pool,num_workers=args.num_workers,always_search=args.always_search)
+        new_data = sample(model, args, stoi, itos, env, temperature, always_search=args.always_search)
+        log_resources(f"Epoch {epoch} AFTER_SAMPLE")
+        do_stats(-1, data=new_data)
+
+        if args.device == "cuda":
+            torch.cuda.empty_cache()
+        elif args.device == "mps":
+            torch.mps.empty_cache()
 
         #Possible to add another generation method here and mix it before taking the best
         train_set, test_set, inc_temp = update_datasets(args, new_data, train_set, train_data_path, test_data_path)
+        log_resources(f"Epoch {epoch} AFTER_UPDATE_DATASETS")
+
+        del new_data  # TODO: is this necessary?
+        gc.collect()  # TODO: is this necessary?
+        gc.collect()  # TODO: is this necessary?
+        force_release_memory()  # TODO: is this necessary?
+                
         if inc_temp and args.inc_temp>0.0:
             temperature += args.inc_temp
 

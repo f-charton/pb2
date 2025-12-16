@@ -100,8 +100,7 @@ def train(args = None):
     print("Training run completed.")
 
 
-# modal run --detach train_remotely.py --env_name Square --base '-2' --square_init_method edge_addition --square_N 25 --max_output_length 400
-# modal run --detach train_remotely.py --env_name Square --base '-1' --square_init_method edge_addition --square_N 25 --max_output_length 100
+# modal run --detach train_remotely.py --env_name square --exp_name test_speed_new_code --N 40 --encoding_tokens single_integer --max_len 150 --temperature 0.6 --inc_temp 0.1 --shuffle true
 @app.local_entrypoint()
 def main(*args: str):
     args = list(args)
