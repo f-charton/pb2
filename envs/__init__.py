@@ -3,6 +3,7 @@ from .sidon import SidonSetEnvironment
 from .cycle import SquareEnvironment, TriangleEnvironment
 from .threeonetwo import ThreeOneTwoEnvironment
 from .isosceles import NoIsoscelesEnvironment
+from .sphere import SphereEnvironment
 
 ENVS = {
     'threerank': ThreeRankEnvironment,
@@ -11,6 +12,7 @@ ENVS = {
     'triangle': TriangleEnvironment,
     'threeonetwo': ThreeOneTwoEnvironment,
     'isosceles': NoIsoscelesEnvironment,
+    'sphere': SphereEnvironment,
 }
 
 

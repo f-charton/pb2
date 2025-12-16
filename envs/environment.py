@@ -154,11 +154,3 @@ def do_score(data, process_pool: bool = False, num_workers: int = 20, always_sea
     
     return valid_data, n_invalid, processed_data
 
-
-def sort_graph_based_on_degree(adj_matrix):
-    out_degree = adj_matrix.sum(axis=1)
-    in_degree = adj_matrix.sum(axis=0)
-    degree = in_degree + out_degree  # so this works for both undirected and directed graphs
-    sorted_indices = np.argsort(-degree, kind='stable')
-    return adj_matrix[np.ix_(sorted_indices, sorted_indices)]
-

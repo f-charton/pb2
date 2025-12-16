@@ -293,6 +293,7 @@ if __name__ == '__main__':
 
     if args.exp_id is None and os.environ.get("MODAL_EXP_ID") is None:
         os.environ["MODAL_EXP_ID"] = time.strftime("%Y_%m_%d_%H_%M_%S")
+        args.exp_id = os.environ["MODAL_EXP_ID"]
 
     args.device = "cpu" if args.cpu else ("mps" if torch.backends.mps.is_available() else "cuda")
     if args.device == "cuda":

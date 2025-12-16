@@ -1,9 +1,8 @@
-from envs.environment import DataPoint, BaseEnvironment, sort_graph_based_on_degree
-import math
+from envs.environment import DataPoint, BaseEnvironment
+from .utils import sort_graph_based_on_degree
 import numpy as np
 from utils import bool_flag
 from .tokenizers import SparseTokenizer, DenseTokenizer
-
 
 
 class CycleDataPoint(DataPoint):

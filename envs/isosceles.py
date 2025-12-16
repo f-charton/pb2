@@ -1,4 +1,5 @@
 from envs.environment import DataPoint, BaseEnvironment
+from .utils import canonical_form_2d
 import numpy as np
 from numba import njit
 from .tokenizers import SparseTokenizer, DenseTokenizer
@@ -168,6 +169,7 @@ class NoIsoscelesDataPoint(DataPoint):
     N = 4
     HARD = True
     PENALTY = 6
+    SORT_GRID_BY_SYMMETRY = False
 
     def __init__(self, init=False):
         super().__init__()
@@ -176,6 +178,8 @@ class NoIsoscelesDataPoint(DataPoint):
         if init:
             self._add_points_greedily()
             self.calc_score()
+            if self.SORT_GRID_BY_SYMMETRY:
+                self.matrix = canonical_form_2d(self.matrix)
             self.calc_features()
 
     def calc_score(self):
@@ -213,16 +217,19 @@ class NoIsoscelesDataPoint(DataPoint):
         self._add_points_greedily()
         self._isosceles_computation()
         self.calc_score()
+        if self.SORT_GRID_BY_SYMMETRY:
+            self.matrix = canonical_form_2d(self.matrix)
         self.calc_features()
 
     @classmethod
     def _update_class_params(self,pars):
         self.N = pars[0]
         self.HARD = pars[1]
+        self.SORT_GRID_BY_SYMMETRY = pars[2]
 
     @classmethod
     def _save_class_params(self):
-        return (self.N, self.HARD)
+        return (self.N, self.HARD, self.SORT_GRID_BY_SYMMETRY)
 
     @classmethod
     def _batch_generate_and_score(cls,n, pars=None):
@@ -239,6 +246,7 @@ class NoIsoscelesEnvironment(BaseEnvironment):
         super().__init__(params)
         self.data_class.N = params.N
         self.data_class.HARD = params.hard
+        self.data_class.SORT_GRID_BY_SYMMETRY = params.sort_grid_by_symmetry
         if params.encoding_tokens == "single_integer":
             self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements)
         elif params.encoding_tokens == "vector_k_integers":
@@ -258,6 +266,7 @@ class NoIsoscelesEnvironment(BaseEnvironment):
         """
         parser.add_argument('--N', type=int, default=30, help='Number of vertices in the K-cycle-free graph')
         parser.add_argument('--hard', type=bool_flag, default="true", help='whether only K-cycle-free graphs are accepted')
+        parser.add_argument('--sort_grid_by_symmetry', type=bool_flag, default="false", help="sort the grid by symmetry")
         parser.add_argument('--encoding_tokens', type=str, default="single_integer", help='single_integer/sequence_k_tokens/vector_k_integers/adjacency')
         parser.add_argument('--shuffle_elements', type=bool_flag, default="false", help="shuffle the elements of the adjacency matrix")
         parser.add_argument('--nosep', type=bool_flag, default="true", help='separator (for adjacency and double edge)')
