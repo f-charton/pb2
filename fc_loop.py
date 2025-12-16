@@ -23,7 +23,9 @@ import queue
 logger = getLogger()
 
 
+# TODO: is this necessary?
 def force_release_memory():
+    # multiple gc.collect() in case of looped calls
     gc.collect()
     gc.collect()
     gc.collect()
@@ -204,10 +206,10 @@ def sample(model, args, stoi, itos, env, temp, always_search=True):
                     break
                 
                 all_data = [batch_numpy[j] for batch_numpy in batches for j in range(batch_numpy.shape[0])]
-                del batches
+                del batches  # TODO: is this necessary?
                 
                 detok_results = detokenize(all_data, args, env, executor=executor)
-                del all_data
+                del all_data  # TODO: is this necessary?
                 
                 valid_data, n_invalid, processed_data = do_score(
                     detok_results, 
@@ -217,17 +219,17 @@ def sample(model, args, stoi, itos, env, temp, always_search=True):
                     executor=executor
                 )
                 
-                del detok_results
+                del detok_results  # TODO: is this necessary?
                 
                 with results_lock:
                     results.extend(valid_data)
                     total_invalid += n_invalid
                     all_processed_data.extend(processed_data)
 
-                del valid_data, processed_data
+                del valid_data, processed_data  # TODO: is this necessary?
                 
                 work_queue.task_done()
-                gc.collect()
+                gc.collect()  # TODO: is this necessary?
                 
         except Exception as e:
             logger.exception(f"Consumer thread error: {e}")
@@ -247,7 +249,7 @@ def sample(model, args, stoi, itos, env, temp, always_search=True):
         top_k = args.top_k if args.top_k != -1 else None
         X_samp = model.generate(X_init, args.max_len + 1, temperature=temp, top_k=top_k, do_sample=True)
         batch_numpy = X_samp[:, 1:, :].cpu().numpy()
-        del X_init, X_samp
+        del X_init, X_samp  # TODO: is this necessary?
         
         pending_batches.append(batch_numpy)
         
@@ -272,7 +274,7 @@ def log_resources(label):
     process = psutil.Process()
     rss_mb = process.memory_info().rss / (1024 * 1024)
     cpu_percent = process.cpu_percent()
-    logger.critical(f"[{label}] CPU: {cpu_percent:.1f}% | RAM: {rss_mb:.1f}MB | Children: {len(process.children())}")
+    logger.info(f"[{label}] CPU: {cpu_percent:.1f}% | RAM: {rss_mb:.1f}MB")
 
 
 def write_important_metrics(metrics, epoch, metric_file):
@@ -387,9 +389,9 @@ if __name__ == '__main__':
         train_dataset = CharDataset(train_words, args.max_len, stoi, token_embeddings=args.token_embeddings)
         test_dataset = CharDataset(test_words, args.max_len, stoi, token_embeddings=args.token_embeddings)
 
-        # del train_words
-        # del test_words
-        # gc.collect()
+        del train_words  # TODO: is this necessary?
+        del test_words  # TODO: is this necessary?
+        gc.collect()  # TODO: is this necessary?
 
         if args.device == "cuda":
             logger.info(f"Memory allocated: {torch.cuda.memory_allocated(0)/(1024*1024):.2f}MB, reserved: {torch.cuda.memory_reserved(0)/(1024*1024):.2f}MB")
@@ -424,10 +426,10 @@ if __name__ == '__main__':
         train_set, test_set, inc_temp = update_datasets(args, new_data, train_set, train_data_path, test_data_path)
         log_resources(f"Epoch {epoch} AFTER_UPDATE_DATASETS")
 
-        del new_data
-        gc.collect()
-        gc.collect()
-        force_release_memory()
+        del new_data  # TODO: is this necessary?
+        gc.collect()  # TODO: is this necessary?
+        gc.collect()  # TODO: is this necessary?
+        force_release_memory()  # TODO: is this necessary?
                 
         if inc_temp and args.inc_temp>0.0:
             temperature += args.inc_temp
