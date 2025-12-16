@@ -175,7 +175,7 @@ class ThreeOneTwoDataPoint(DataPoint):
 
     def __init__(self, init=False):
         super().__init__()
-        self.matrix = np.eye(self.N, dtype=np.int32)
+        self.matrix = np.eye(self.N, dtype=np.bool_)
         self.cycles = np.empty((0, 6), dtype=np.int32)
         if init:
             self._add_edges_greedily()

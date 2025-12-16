@@ -171,7 +171,7 @@ class NoIsoscelesDataPoint(DataPoint):
 
     def __init__(self, init=False):
         super().__init__()
-        self.matrix = np.zeros((self.N, self.N), dtype=np.int32)
+        self.matrix = np.zeros((self.N, self.N), dtype=np.bool_)
         self.isosceles = np.empty((0, 6), dtype=np.int32)
         if init:
             self._add_points_greedily()
