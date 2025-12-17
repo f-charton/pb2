@@ -47,7 +47,7 @@ class Tokenizer(ABC):
 
 
 class SparseTokenizer(Tokenizer):
-    def __init__(self, dataclass, N, k, is_adj_matrix_symmetric, extra_symbols, token_embeddings, encoding, shuffle_elements=False, nosep=None):
+    def __init__(self, dataclass, N, k, is_adj_matrix_symmetric, extra_symbols, token_embeddings, encoding, shuffle_elements=False, nosep=None, encoding_augmentation=None):
         self.dataclass = dataclass
         self.N = N
         self.k = k
@@ -57,7 +57,7 @@ class SparseTokenizer(Tokenizer):
         self.flatten_output = encoding == "sequence_k_tokens"
         self.nosep = nosep
         self.shuffle_elements = shuffle_elements
-
+        self.encoding_augmentation = encoding_augmentation
         assert not self.flatten_output or self.nosep is not None
         
         expected_emb = 1 if encoding in ["single_integer", "sequence_k_tokens"] else k
@@ -93,10 +93,15 @@ class SparseTokenizer(Tokenizer):
                 yield chunk
 
     def encode(self, graph):
+        if self.encoding_augmentation:
+            matrix = self.encoding_augmentation(graph.matrix)
+        else:
+            matrix = graph.matrix
+
         edges = []
         w = []
         for el in iterate_k_times(self.N, self.k, self.is_adj_matrix_symmetric):
-            if graph.matrix[el] == 1:
+            if matrix[el] == 1:
                 edges.append(el)
 
         if self.shuffle_elements:
@@ -154,13 +159,14 @@ class SparseTokenizer(Tokenizer):
 
 
 class DenseTokenizer(Tokenizer):
-    def __init__(self, dataclass, N, k, is_adj_matrix_symmetric, extra_symbols, nosep, pow2base):
+    def __init__(self, dataclass, N, k, is_adj_matrix_symmetric, extra_symbols, nosep, pow2base, encoding_augmentation=None):
         self.dataclass = dataclass
         self.N = N
         self.k = k
         self.is_adj_matrix_symmetric = is_adj_matrix_symmetric
         self.nosep = nosep
         self.pow2base = pow2base
+        self.encoding_augmentation = encoding_augmentation
         self.stoi, self.itos = {}, {}
         self.token_embeddings = 1
 
@@ -215,13 +221,18 @@ class DenseTokenizer(Tokenizer):
             return range(self.N)
 
     def encode(self, graph):
+        if self.encoding_augmentation:
+            matrix = self.encoding_augmentation(graph.matrix)
+        else:
+            matrix = graph.matrix
+
         w = []
         if self.nosep:
-            bits = (graph.matrix[el] for el in iterate_k_times(self.N, self.k, self.is_adj_matrix_symmetric))
+            bits = (matrix[el] for el in iterate_k_times(self.N, self.k, self.is_adj_matrix_symmetric))
             w = self._pack_bits(bits)
         else:
             for i in range(self.N):
-                row_bits = (graph.matrix[i, j] for j in self._row_indices(i))
+                row_bits = (matrix[i, j] for j in self._row_indices(i))
                 w.extend(self._pack_bits(row_bits))
                 w.append(self.stoi["SEP"])
         w.append(self.stoi["EOS"])

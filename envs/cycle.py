@@ -1,5 +1,5 @@
 from envs.environment import DataPoint, BaseEnvironment
-from .utils import sort_graph_based_on_degree
+from .utils import sort_graph_based_on_degree, random_symmetry_adj_matrix
 import numpy as np
 from utils import bool_flag
 from .tokenizers import SparseTokenizer, DenseTokenizer
@@ -8,7 +8,7 @@ from .tokenizers import SparseTokenizer, DenseTokenizer
 class CycleDataPoint(DataPoint):
     N = 4
     HARD = True
-    SORT_MATRIX_BY_DEGREE = False
+    MAKE_OBJECT_CANONICAL = False
 
     def __init__(self, init=False):
         super().__init__()
@@ -17,7 +17,7 @@ class CycleDataPoint(DataPoint):
         if init:
             self._add_edges_greedily()
             self.calc_score()
-            if self.SORT_MATRIX_BY_DEGREE:
+            if self.MAKE_OBJECT_CANONICAL:
                 self.matrix = sort_graph_based_on_degree(self.matrix)
             self.calc_features()
 
@@ -88,7 +88,7 @@ class CycleDataPoint(DataPoint):
         self._add_edges_greedily()
         self._cycles_computation()
         self.calc_score()
-        if self.SORT_MATRIX_BY_DEGREE:
+        if self.MAKE_OBJECT_CANONICAL:
             self.matrix = sort_graph_based_on_degree(self.matrix)
         self.calc_features()
 
@@ -96,11 +96,11 @@ class CycleDataPoint(DataPoint):
     def _update_class_params(self,pars):
         self.N = pars[0]
         self.HARD = pars[1]
-        self.SORT_MATRIX_BY_DEGREE = pars[2]
+        self.MAKE_OBJECT_CANONICAL = pars[2]
 
     @classmethod
     def _save_class_params(self):
-        return (self.N, self.HARD, self.SORT_MATRIX_BY_DEGREE)
+        return (self.N, self.HARD, self.MAKE_OBJECT_CANONICAL)
 
     @classmethod
     def _batch_generate_and_score(cls,n, pars=None):
@@ -195,15 +195,16 @@ class CycleEnvironment(BaseEnvironment):
         super().__init__(params)
         self.data_class.N = params.N
         self.data_class.HARD = params.hard
-        self.data_class.SORT_MATRIX_BY_DEGREE = params.sort_matrix_by_degree
+        self.data_class.MAKE_OBJECT_CANONICAL = params.make_object_canonical
+        encoding_augmentation = random_symmetry_adj_matrix if params.augment_data_representation else None
         if params.encoding_tokens == "single_integer":
-            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements)
+            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, encoding_augmentation=encoding_augmentation)
         elif params.encoding_tokens == "vector_k_integers":
-            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=self.k, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements)
+            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=self.k, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, encoding_augmentation=random_symmetry_adj_matrix)
         elif params.encoding_tokens == "sequence_k_tokens":
-            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, nosep=params.nosep)
+            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, nosep=params.nosep, encoding_augmentation=random_symmetry_adj_matrix)
         elif params.encoding_tokens == "adjacency":
-            self.tokenizer = DenseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, params.nosep, params.pow2base)
+            self.tokenizer = DenseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, nosep=params.nosep, pow2base=params.pow2base, encoding_function=random_symmetry_adj_matrix)
         else:
             raise ValueError(f"Invalid encoding: {params.encoding_tokens}")
 
@@ -215,8 +216,9 @@ class CycleEnvironment(BaseEnvironment):
         """
         parser.add_argument('--N', type=int, default=30, help='Number of vertices in the K-cycle-free graph')
         parser.add_argument('--hard', type=bool_flag, default="true", help='whether only K-cycle-free graphs are accepted')
-        parser.add_argument('--sort_matrix_by_degree', type=bool_flag, default="false", help="sort the graph node names based on its indegree")
         parser.add_argument('--encoding_tokens', type=str, default="single_integer", help='single_integer/sequence_k_tokens/vector_k_integers/adjacency')
+        parser.add_argument('--make_object_canonical', type=bool_flag, default="false", help="sort the graph node names based on its indegree")
+        parser.add_argument('--augment_data_representation', type=bool_flag, default="false", help="augment the data representation with predefined function")
         parser.add_argument('--shuffle_elements', type=bool_flag, default="false", help="shuffle the elements of the adjacency matrix")
         parser.add_argument('--nosep', type=bool_flag, default="true", help='separator (for adjacency and double edge)')
         parser.add_argument('--pow2base', type=int, default=1, help='Number of adjacency entries to code together')

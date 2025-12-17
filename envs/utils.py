@@ -15,6 +15,11 @@ def sort_graph_based_on_degree(adj_matrix):
     return adj_matrix[np.ix_(sorted_indices, sorted_indices)]
 
 
+def random_symmetry_adj_matrix(adj_matrix):
+    perm = np.random.permutation(adj_matrix.shape[0])
+    return adj_matrix[np.ix_(perm, perm)]  # this is creating a copy already
+
+
 ############################################################
 # Utils for square
 ############################################################
