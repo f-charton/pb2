@@ -25,6 +25,9 @@ class DataPoint(ABC):
 
     def local_search(self):
         return
+
+    def redeem(self):
+        return
     
     def generate_and_score(self):
         self.calc_features()
@@ -71,7 +74,7 @@ def do_stats(n_invalid, data):
     Compute and log statistics
     """
     scores = [d.score for d in data if d.score >= 0]
-    num_bins = 50
+    num_bins = 200
     logger.info(f"### Score distribution ###")
     if n_invalid >= 0:
         # Evaluation during training
@@ -108,7 +111,7 @@ def do_stats(n_invalid, data):
         return {"mean": mean, "median": median, "top_1_percentile": top_1_percentile, "max": max_score}
     return None
 
-def _do_score(d, always_search:bool = False,pars=None):
+def _do_score(d, always_search:bool = False, redeem:bool = False, pars=None):
     invalid = 0
     if pars is not None:
         d._update_class_params(pars)
@@ -116,12 +119,13 @@ def _do_score(d, always_search:bool = False,pars=None):
     d.calc_score()
     if d.score < 0:
         invalid = 1
-        d.local_search()
-    elif always_search:
+        if redeem:
+            d.redeem()
+    if always_search:
         d.local_search()
     return (d,invalid)
 
-def do_score(data, process_pool: bool = False, num_workers: int = 20, always_search: bool = False, executor=None):
+def do_score(data, process_pool: bool = False, num_workers :int = 20, always_search:bool = False, redeem:bool = False, executor:None=None):
     """
     Compute the score of a list of data.
     Can be parallelized with process_pool.
@@ -131,7 +135,7 @@ def do_score(data, process_pool: bool = False, num_workers: int = 20, always_sea
     if not process_pool:
         for d in data:
             # warning, change the original list
-            d,invalid = _do_score(d,always_search)
+            d,invalid = _do_score(d,always_search, redeem)
             n_invalid += invalid
         processed_data = data
     else:
@@ -141,12 +145,12 @@ def do_score(data, process_pool: bool = False, num_workers: int = 20, always_sea
         processed_data = []
         
         if executor is not None:
-            for d, invalid in executor.map(_do_score, data, repeat(always_search), repeat(pars), chunksize=chunksize):
+            for d, invalid in executor.map(_do_score, data, repeat(always_search), repeat(redeem), repeat(pars), chunksize=chunksize):
                 processed_data.append(d)
                 n_invalid += invalid
         else:
             with ProcessPoolExecutor(max_workers=num_workers) as ex:
-                for d, invalid in ex.map(_do_score, data, repeat(always_search), repeat(pars), chunksize=chunksize):
+                for d, invalid in ex.map(_do_score, data, repeat(always_search), repeat(redeem), repeat(pars), chunksize=chunksize):
                     processed_data.append(d)
                     n_invalid += invalid
 

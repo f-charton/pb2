@@ -52,6 +52,8 @@ def get_parser():
     parser.add_argument('--input_file', type=str, default="", help='Optional input file with data')
     parser.add_argument('--process_pool', type=bool_flag, default="true", help='use process_pool to generate and score initial data')
     parser.add_argument('--always_search', type=bool_flag, default="true", help='if True, use local search for all examples generated (if False, only for invalid examples)')
+    parser.add_argument('--redeem', type=bool_flag, default="true", help='if True, save invalid examples)')
+    
     parser.add_argument('--new_proportion', type=float, default=0.0, help="proportion of new samples in test set")
 
     # Makemore params
@@ -74,6 +76,7 @@ def get_parser():
     # evaluation against known "good sequences"
     parser.add_argument('--gen_batch_size', type=int, default=1000, help="generation batch size")
     parser.add_argument('--temperature', type=float, default=1.0, help="temperature")
+    parser.add_argument('--temp_span', type=int, default=0, help="temperature span")
     parser.add_argument('--inc_temp', type=float, default=0.0, help="temperature")
     parser.add_argument('--keep_only_unique', type=bool_flag, default="true", help='keep only unique data')
     parser.add_argument("--always_reload", type=bool_flag, default="false",help="reload best model before generation")
@@ -180,7 +183,8 @@ def train(model, args, loader, optim, test_dataset, current_best_loss=None):
     return best_loss
     
 
-def sample(model, args, stoi, itos, env, temp, always_search=True):
+def sample(model, args, stoi, itos, env, temp, tempspan=0, always_search=True):
+    eos_token_id = stoi["EOS"]
     bos_token_id = stoi["BOS"]
     sample_batch_size = args.gen_batch_size # reduce this if GPU crashes, increase it if sampling is slow
     todo = args.sample_only // sample_batch_size
@@ -238,8 +242,13 @@ def sample(model, args, stoi, itos, env, temp, always_search=True):
     consumer.start()
     
     pending_batches = []
-    
+
+
     for i in range(todo):
+        if tempspan > 0: 
+            curr_temp = temp+ 0.1*np.random.randint(tempspan+1)
+        else:
+             curr_temp = temp
         if i % 100 == 0:
             with results_lock:
                 scored_so_far = len(results)
@@ -247,7 +256,7 @@ def sample(model, args, stoi, itos, env, temp, always_search=True):
 
         X_init = torch.full((sample_batch_size, 1, args.token_embeddings), bos_token_id, dtype=torch.long).to(args.device)
         top_k = args.top_k if args.top_k != -1 else None
-        X_samp = model.generate(X_init, args.max_len + 1, temperature=temp, top_k=top_k, do_sample=True)
+        X_samp = model.generate(X_init, args.max_len + 1, temperature=curr_temp, top_k=top_k, do_sample=True)
         batch_numpy = X_samp[:, 1:, :].cpu().numpy()
         del X_init, X_samp  # TODO: is this necessary?
         
@@ -407,14 +416,17 @@ if __name__ == '__main__':
         # taking the best model based on the test loss
         if args.always_reload:
             reload_model_optimizer(args, model, optimizer)
-        logger.info(f"Sample with temperature {temperature}")
-
+        logger.info(f"Sample with temperature {temperature} to {temperature+0.1*args.temp_span}")
         if args.device == "cuda":
             torch.cuda.empty_cache()
         elif args.device == "mps":
             torch.mps.empty_cache()
 
-        new_data = sample(model, args, stoi, itos, env, temperature, always_search=args.always_search)
+
+#        logger.info(f"New data detokenized length is {len(new_data)}")
+
+
+        new_data = sample(model, args, stoi, itos, env, temperature, args.temp_span,always_search=args.always_search)
         log_resources(f"Epoch {epoch} AFTER_SAMPLE")
         do_stats(-1, data=new_data)
 
@@ -423,6 +435,7 @@ if __name__ == '__main__':
         elif args.device == "mps":
             torch.mps.empty_cache()
 
+        new_data = do_score(new_data,process_pool=args.process_pool,num_workers=args.num_workers,always_search=args.always_search,redeem=args.redeem)
         #Possible to add another generation method here and mix it before taking the best
         train_set, test_set, inc_temp = update_datasets(args, new_data, train_set, train_data_path, test_data_path)
         log_resources(f"Epoch {epoch} AFTER_UPDATE_DATASETS")
@@ -432,6 +445,8 @@ if __name__ == '__main__':
         gc.collect()  # TODO: is this necessary?
         force_release_memory()  # TODO: is this necessary?
                 
+
+        #Possible to add another generation method here and mix it before taking the best
         if inc_temp and args.inc_temp>0.0:
             temperature += args.inc_temp
 

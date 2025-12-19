@@ -77,7 +77,7 @@ def compute_unique_data(old_data, new_data=None):
     return unique_old_data, unique_new_data
 
 
-def update_datasets(args, data, train_set, train_path, test_path):
+def update_datasets(args, data, train_set, test_set, train_path, test_path):
     inc_temp=False
     if args.keep_only_unique:
         bef = len(data)
@@ -90,8 +90,11 @@ def update_datasets(args, data, train_set, train_path, test_path):
         new_data = select_best(int(args.new_proportion*args.pop_size), data)
     else:
         new_data = select_best(args.pop_size, data)
-
-    new_train, test_set = make_train_test(new_data, args.ntest)
+    
+    if len(new_data) >= 2* args.ntest:
+        new_train, test_set = make_train_test(new_data, args.ntest)
+    else:
+        new_train = new_data
     logger.info(f"New train and test generated. Size are train: {len(new_train)}, test {len(test_set)}")
     #Get all examples of previous train and current train and then select best.
     if args.keep_only_unique:
@@ -119,7 +122,7 @@ def load_initial_data(args, classname):
         data = generate_and_score(args,classname=classname)
 
         train_set = []
-        train_set, test_set, _ = update_datasets(args, data, train_set,train_data_path, test_data_path)
+        train_set, test_set, _ = update_datasets(args, data, train_set, train_set, train_data_path, test_data_path)
     return train_set, test_set
 
 

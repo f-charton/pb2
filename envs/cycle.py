@@ -9,6 +9,7 @@ class CycleDataPoint(DataPoint):
     N = 4
     HARD = True
     MAKE_OBJECT_CANONICAL = False
+    PENALTY = 6
 
     def __init__(self, init=False):
         super().__init__()
@@ -20,6 +21,7 @@ class CycleDataPoint(DataPoint):
             if self.MAKE_OBJECT_CANONICAL:
                 self.matrix = sort_graph_based_on_degree(self.matrix)
             self.calc_features()
+            self.calc_score()
 
     def calc_score(self):
         if self.HARD and len(self.cycles) > 0:
@@ -33,6 +35,7 @@ class CycleDataPoint(DataPoint):
             for j in range(i + 1, self.N):
                 w.append(self.matrix[i, j])
         self.features = ",".join(map(str, w))
+        self._cycles_computation()
 
     def _add_edges_greedily(self):
         np.random.seed(None)
@@ -83,7 +86,7 @@ class CycleDataPoint(DataPoint):
         return
 
     def local_search(self):
-        self._cycles_computation()
+        #self._cycles_computation()
         self._remove_edges_greedily()
         self._add_edges_greedily()
         self._cycles_computation()
@@ -91,16 +94,25 @@ class CycleDataPoint(DataPoint):
         if self.MAKE_OBJECT_CANONICAL:
             self.matrix = sort_graph_based_on_degree(self.matrix)
         self.calc_features()
+        self.calc_score()
+
+    def redeem(self):
+        self._remove_edges_greedily()
+        self.calc_features()
+        self.calc_score()
+
 
     @classmethod
     def _update_class_params(self,pars):
         self.N = pars[0]
         self.HARD = pars[1]
         self.MAKE_OBJECT_CANONICAL = pars[2]
+        self.PENALTY = pars[3]
 
     @classmethod
     def _save_class_params(self):
-        return (self.N, self.HARD, self.MAKE_OBJECT_CANONICAL)
+        return (self.N, self.HARD, self.MAKE_OBJECT_CANONICAL, self.PENALTY)
+
 
     @classmethod
     def _batch_generate_and_score(cls,n, pars=None):
