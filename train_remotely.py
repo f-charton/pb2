@@ -33,7 +33,10 @@ def args_to_string():
 
 if modal.is_local():
     MODAL_EXP_ID = get_flag_value_from_list(sys.argv, "--exp_id")
-    ARGS = args_to_string()
+
+    ARGS = get_flag_value_from_list(sys.argv, "--exp_name", "debug")
+    #ARGS = args_to_string()
+
     if MODAL_EXP_ID is None:
         MODAL_EXP_ID = time.strftime("%Y_%m_%d_%H_%M_%S")
     APP_NAME = f"{ARGS}_{MODAL_EXP_ID}"

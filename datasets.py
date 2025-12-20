@@ -91,7 +91,7 @@ def update_datasets(args, data, train_set, test_set, train_path, test_path):
     else:
         new_data = select_best(args.pop_size, data)
     
-    if len(new_data) >= 2* args.ntest:
+    if len(new_data) >= 2* args.ntest or test_set is None:
         new_train, test_set = make_train_test(new_data, args.ntest)
     else:
         new_train = new_data
@@ -120,9 +120,10 @@ def load_initial_data(args, classname):
         test_set = pickle.load(open(test_data_path, "rb"))
     else:
         data = generate_and_score(args,classname=classname)
+        test_set = []
 
         train_set = []
-        train_set, test_set, _ = update_datasets(args, data, train_set, train_set, train_data_path, test_data_path)
+        train_set, test_set, _ = update_datasets(args, data, train_set, test_set, train_data_path, test_data_path)
     return train_set, test_set
 
 

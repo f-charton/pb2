@@ -10,11 +10,13 @@ class CycleDataPoint(DataPoint):
     HARD = True
     MAKE_OBJECT_CANONICAL = False
     PENALTY = 6
+    BALANCED = False
 
     def __init__(self, init=False):
         super().__init__()
         self.matrix = np.zeros((self.N, self.N), dtype=np.bool_)
         self.cycles = []
+
         if init:
             self._add_edges_greedily()
             self.calc_score()
@@ -66,13 +68,19 @@ class CycleDataPoint(DataPoint):
             allowed_edges = new_allowed_edges
 
     def _remove_edges_greedily(self):
-        while self.cycles:
-            edge_count = {}
-            for cycle in self.cycles:
-                for edge in cycle:
-                    edge_count[edge] = edge_count.get(edge, 0) + 1
-            most_frequent_edge = max(edge_count, key=edge_count.get)
-            i, j = most_frequent_edge
+            if self.BALANCED:
+                cycle_edges = []
+                for cycle in self.cycles:
+                    cycle_edges.extend(cycle)
+                unique_cycle_edges = set(cycle_edges)
+                selected_edge = np.random.choice(list(unique_cycle_edges))
+            else:
+                edge_count = {}
+                for cycle in self.cycles:
+                    for edge in cycle:
+                        edge_count[edge] = edge_count.get(edge, 0) + 1
+                selected_edge = max(edge_count, key=edge_count.get)
+            i, j = selected_edge
             self.matrix[i, j] = 0
             self.matrix[j, i] = 0
 
@@ -84,6 +92,15 @@ class CycleDataPoint(DataPoint):
 
     def _cycles_computation(self):
         return
+    
+    def mutate(self, n):
+        for _ in range(n):
+            i = np.random.randint(1,self.N)
+            j = np.random.randint(i)
+            self.matrix[i][j]=1
+            self.matrix[j][i]=1
+        self.local_search()
+
 
     def local_search(self):
         #self._cycles_computation()
@@ -108,10 +125,12 @@ class CycleDataPoint(DataPoint):
         self.HARD = pars[1]
         self.MAKE_OBJECT_CANONICAL = pars[2]
         self.PENALTY = pars[3]
+        self.BALANCED = pars[4]
+        self.TASK = pars[5]
 
     @classmethod
     def _save_class_params(self):
-        return (self.N, self.HARD, self.MAKE_OBJECT_CANONICAL, self.PENALTY)
+        return (self.N, self.HARD, self.MAKE_OBJECT_CANONICAL, self.PENALTY, self.BALANCED,self.TASK)
 
 
     @classmethod
@@ -208,6 +227,7 @@ class CycleEnvironment(BaseEnvironment):
         self.data_class.N = params.N
         self.data_class.HARD = params.hard
         self.data_class.MAKE_OBJECT_CANONICAL = params.make_object_canonical
+        self.data_class.BALANCED =params.balanced_search
         encoding_augmentation = random_symmetry_adj_matrix if params.augment_data_representation else None
         if params.encoding_tokens == "single_integer":
             self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, encoding_augmentation=encoding_augmentation)
@@ -234,6 +254,8 @@ class CycleEnvironment(BaseEnvironment):
         parser.add_argument('--shuffle_elements', type=bool_flag, default="false", help="shuffle the elements of the adjacency matrix")
         parser.add_argument('--nosep', type=bool_flag, default="true", help='separator (for adjacency and double edge)')
         parser.add_argument('--pow2base', type=int, default=1, help='Number of adjacency entries to code together')
+        parser.add_argument('--balanced_search', type=bool_flag, default="false", help="sort the graph node names based on its indegree")
+        
 
 class SquareEnvironment(CycleEnvironment):
     data_class = SquareDataPoint

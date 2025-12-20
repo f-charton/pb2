@@ -422,10 +422,6 @@ if __name__ == '__main__':
         elif args.device == "mps":
             torch.mps.empty_cache()
 
-
-#        logger.info(f"New data detokenized length is {len(new_data)}")
-
-
         new_data = sample(model, args, stoi, itos, env, temperature, args.temp_span,always_search=args.always_search)
         log_resources(f"Epoch {epoch} AFTER_SAMPLE")
         do_stats(-1, data=new_data)
@@ -437,7 +433,7 @@ if __name__ == '__main__':
 
         new_data = do_score(new_data,process_pool=args.process_pool,num_workers=args.num_workers,always_search=args.always_search,redeem=args.redeem)
         #Possible to add another generation method here and mix it before taking the best
-        train_set, test_set, inc_temp = update_datasets(args, new_data, train_set, train_data_path, test_data_path)
+        train_set, test_set, inc_temp = update_datasets(args, new_data, train_set, test_set, train_data_path, test_data_path)
         log_resources(f"Epoch {epoch} AFTER_UPDATE_DATASETS")
 
         del new_data  # TODO: is this necessary?
