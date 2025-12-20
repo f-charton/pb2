@@ -232,11 +232,11 @@ class CycleEnvironment(BaseEnvironment):
         if params.encoding_tokens == "single_integer":
             self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, encoding_augmentation=encoding_augmentation)
         elif params.encoding_tokens == "vector_k_integers":
-            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=self.k, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, encoding_augmentation=random_symmetry_adj_matrix)
+            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=self.k, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, encoding_augmentation=encoding_augmentation)
         elif params.encoding_tokens == "sequence_k_tokens":
-            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, nosep=params.nosep, encoding_augmentation=random_symmetry_adj_matrix)
+            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, nosep=params.nosep, encoding_augmentation=encoding_augmentation)
         elif params.encoding_tokens == "adjacency":
-            self.tokenizer = DenseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, nosep=params.nosep, pow2base=params.pow2base, encoding_function=random_symmetry_adj_matrix)
+            self.tokenizer = DenseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, nosep=params.nosep, pow2base=params.pow2base, encoding_function=encoding_augmentation)
         else:
             raise ValueError(f"Invalid encoding: {params.encoding_tokens}")
 
