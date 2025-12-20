@@ -19,7 +19,7 @@ class CycleDataPoint(DataPoint):
 
         if init:
             self._add_edges_greedily()
-            self.calc_score()
+            # here there cannot be any cycles, so _cycles_computation() is useless
             if self.MAKE_OBJECT_CANONICAL:
                 self.matrix = sort_graph_based_on_degree(self.matrix)
             self.calc_features()
@@ -37,7 +37,6 @@ class CycleDataPoint(DataPoint):
             for j in range(i + 1, self.N):
                 w.append(self.matrix[i, j])
         self.features = ",".join(map(str, w))
-        self._cycles_computation()
 
     def _add_edges_greedily(self):
         np.random.seed(None)
@@ -68,12 +67,13 @@ class CycleDataPoint(DataPoint):
             allowed_edges = new_allowed_edges
 
     def _remove_edges_greedily(self):
+        while self.cycles:
             if self.BALANCED:
                 cycle_edges = []
                 for cycle in self.cycles:
                     cycle_edges.extend(cycle)
-                unique_cycle_edges = set(cycle_edges)
-                selected_edge = np.random.choice(list(unique_cycle_edges))
+                unique_cycle_edges = list(set(cycle_edges))
+                selected_edge = unique_cycle_edges[np.random.randint(len(unique_cycle_edges))]
             else:
                 edge_count = {}
                 for cycle in self.cycles:
@@ -103,18 +103,22 @@ class CycleDataPoint(DataPoint):
 
 
     def local_search(self):
-        #self._cycles_computation()
+        # here I start from a dirty graph, so computing cycles is needed - cycles are needed on the _remove_edges_greedily()
+        self._cycles_computation()
         self._remove_edges_greedily()
         self._add_edges_greedily()
+        # this is redundant because _remove_edges_greedily() removed all cycles, and _add_edges_greedily() cannot add any cycles
         self._cycles_computation()
-        self.calc_score()
         if self.MAKE_OBJECT_CANONICAL:
             self.matrix = sort_graph_based_on_degree(self.matrix)
         self.calc_features()
         self.calc_score()
 
     def redeem(self):
+        self._cycles_computation()
         self._remove_edges_greedily()
+        if self.MAKE_OBJECT_CANONICAL:
+            self.matrix = sort_graph_based_on_degree(self.matrix)
         self.calc_features()
         self.calc_score()
 
@@ -254,7 +258,7 @@ class CycleEnvironment(BaseEnvironment):
         parser.add_argument('--shuffle_elements', type=bool_flag, default="false", help="shuffle the elements of the adjacency matrix")
         parser.add_argument('--nosep', type=bool_flag, default="true", help='separator (for adjacency and double edge)')
         parser.add_argument('--pow2base', type=int, default=1, help='Number of adjacency entries to code together')
-        parser.add_argument('--balanced_search', type=bool_flag, default="false", help="sort the graph node names based on its indegree")
+        parser.add_argument('--balanced_search', type=bool_flag, default="false", help="when removing edges on cycles, do not be too greedy")
         
 
 class SquareEnvironment(CycleEnvironment):

@@ -183,7 +183,7 @@ def train(model, args, loader, optim, test_dataset, current_best_loss=None):
     return best_loss
     
 
-def sample(model, args, stoi, itos, env, temp, tempspan=0, always_search=True):
+def sample_and_score(model, args, stoi, itos, env, temp, tempspan=0):
     eos_token_id = stoi["EOS"]
     bos_token_id = stoi["BOS"]
     sample_batch_size = args.gen_batch_size # reduce this if GPU crashes, increase it if sampling is slow
@@ -219,7 +219,8 @@ def sample(model, args, stoi, itos, env, temp, tempspan=0, always_search=True):
                     detok_results, 
                     process_pool=args.process_pool,
                     num_workers=args.num_workers,
-                    always_search=always_search,
+                    always_search=args.always_search,
+                    redeem=args.redeem,
                     executor=executor
                 )
                 
@@ -422,7 +423,7 @@ if __name__ == '__main__':
         elif args.device == "mps":
             torch.mps.empty_cache()
 
-        new_data = sample(model, args, stoi, itos, env, temperature, args.temp_span,always_search=args.always_search)
+        new_data = sample_and_score(model, args, stoi, itos, env, temperature, args.temp_span)
         log_resources(f"Epoch {epoch} AFTER_SAMPLE")
         do_stats(-1, data=new_data)
 
@@ -431,7 +432,6 @@ if __name__ == '__main__':
         elif args.device == "mps":
             torch.mps.empty_cache()
 
-        new_data = do_score(new_data,process_pool=args.process_pool,num_workers=args.num_workers,always_search=args.always_search,redeem=args.redeem)
         #Possible to add another generation method here and mix it before taking the best
         train_set, test_set, inc_temp = update_datasets(args, new_data, train_set, test_set, train_data_path, test_data_path)
         log_resources(f"Epoch {epoch} AFTER_UPDATE_DATASETS")

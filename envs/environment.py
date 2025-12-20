@@ -125,7 +125,7 @@ def _do_score(d, always_search:bool = False, redeem:bool = False, pars=None):
         d.local_search()
     return (d,invalid)
 
-def do_score(data, process_pool: bool = False, num_workers :int = 20, always_search:bool = False, redeem:bool = False, executor:None=None):
+def do_score(data, process_pool: bool = False, num_workers :int = 20, always_search:bool = False, redeem:bool = False, executor=None):
     """
     Compute the score of a list of data.
     Can be parallelized with process_pool.
