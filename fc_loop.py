@@ -300,7 +300,7 @@ if __name__ == '__main__':
     parser = get_parser()
     args = parser.parse_args()
 
-    if args.exp_id is None and os.environ.get("MODAL_EXP_ID") is None:
+    if args.exp_id == "" and os.environ.get("MODAL_EXP_ID") is None:
         os.environ["MODAL_EXP_ID"] = time.strftime("%Y_%m_%d_%H_%M_%S")
         args.exp_id = os.environ["MODAL_EXP_ID"]
 
