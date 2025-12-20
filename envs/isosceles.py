@@ -118,10 +118,12 @@ def _greedy_add_jittered(matrix, candidates, N):
 
 
 @njit(cache=True)
-def _greedy_remove_jittered(matrix, triangles, N):
+def _greedy_remove_jittered(matrix, triangles, N, random_floats):
     num_triangles = len(triangles)
     if num_triangles == 0:
         return
+    
+    use_random = len(random_floats) > 0
     
     active = np.ones(num_triangles, dtype=np.uint8)
     
@@ -133,17 +135,40 @@ def _greedy_remove_jittered(matrix, triangles, N):
     
     num_active = num_triangles
     
+    if use_random:
+        problematic_x = np.empty(N * N, dtype=np.int32)
+        problematic_y = np.empty(N * N, dtype=np.int32)
+    
+    step_idx = 0
+    
     while num_active > 0:
-        max_count = 0
-        best_x, best_y = -1, -1
-        for x in range(N):
-            for y in range(N):
-                if matrix[x, y] == 1 and point_count[x, y] > max_count:
-                    max_count = point_count[x, y]
-                    best_x, best_y = x, y
-        
-        if max_count == 0:
-            break
+        if use_random:
+            n_problematic = 0
+            for x in range(N):
+                for y in range(N):
+                    if matrix[x, y] == 1 and point_count[x, y] > 0:
+                        problematic_x[n_problematic] = x
+                        problematic_y[n_problematic] = y
+                        n_problematic += 1
+            
+            if n_problematic == 0:
+                break
+            
+            idx = int(random_floats[step_idx] * n_problematic)
+            step_idx += 1
+            best_x = problematic_x[idx]
+            best_y = problematic_y[idx]
+        else:
+            max_count = 0
+            best_x, best_y = -1, -1
+            for x in range(N):
+                for y in range(N):
+                    if matrix[x, y] == 1 and point_count[x, y] > max_count:
+                        max_count = point_count[x, y]
+                        best_x, best_y = x, y
+            
+            if max_count == 0:
+                break
         
         matrix[best_x, best_y] = 0
         
@@ -170,6 +195,7 @@ class NoIsoscelesDataPoint(DataPoint):
     HARD = True
     PENALTY = 6
     MAKE_OBJECT_CANONICAL = False
+    BALANCED = False
 
     def __init__(self, init=False):
         super().__init__()
@@ -177,10 +203,10 @@ class NoIsoscelesDataPoint(DataPoint):
         self.isosceles = np.empty((0, 6), dtype=np.int32)
         if init:
             self._add_points_greedily()
-            self.calc_score()
             if self.MAKE_OBJECT_CANONICAL:
                 self.matrix = canonical_form_2d(self.matrix)
             self.calc_features()
+            self.calc_score()
 
     def calc_score(self):
         if self.HARD and self.isosceles.size > 0:
@@ -203,13 +229,26 @@ class NoIsoscelesDataPoint(DataPoint):
 
     def _remove_points_greedily(self):
         if self.isosceles.size > 0:
-            _greedy_remove_jittered(self.matrix, self.isosceles, self.N)
+            if self.BALANCED:
+                random_floats = np.random.random(self.N * self.N).astype(np.float32)
+            else:
+                random_floats = np.empty(0, dtype=np.float32)
+            _greedy_remove_jittered(self.matrix, self.isosceles, self.N, random_floats)
             self.isosceles = np.empty((0, 6), dtype=np.int32)
 
     def _isosceles_computation(self):
         points = np.argwhere(self.matrix == 1)
         points_arr = np.ascontiguousarray(points, dtype=np.int32)
         self.isosceles = _greedy_fill_jittered(points_arr, len(points_arr))
+
+    def mutate_and_search(self, n):
+        if n > 0:
+            np.random.seed(None)
+        for _ in range(n):
+            i = np.random.randint(self.N)
+            j = np.random.randint(self.N)
+            self.matrix[i, j] = 1
+        self.local_search()
 
     def local_search(self):
         self._isosceles_computation()
@@ -226,10 +265,11 @@ class NoIsoscelesDataPoint(DataPoint):
         self.N = pars[0]
         self.HARD = pars[1]
         self.MAKE_OBJECT_CANONICAL = pars[2]
+        self.BALANCED = pars[3]
 
     @classmethod
     def _save_class_params(self):
-        return (self.N, self.HARD, self.MAKE_OBJECT_CANONICAL)
+        return (self.N, self.HARD, self.MAKE_OBJECT_CANONICAL, self.BALANCED)
 
     @classmethod
     def _batch_generate_and_score(cls,n, pars=None):
@@ -247,6 +287,7 @@ class NoIsoscelesEnvironment(BaseEnvironment):
         self.data_class.N = params.N
         self.data_class.HARD = params.hard
         self.data_class.MAKE_OBJECT_CANONICAL = params.make_object_canonical
+        self.data_class.BALANCED = params.balanced_search
         encoding_augmentation = random_symmetry_2d if params.augment_data_representation else None
         if params.encoding_tokens == "single_integer":
             self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, encoding_augmentation=encoding_augmentation)
@@ -273,4 +314,5 @@ class NoIsoscelesEnvironment(BaseEnvironment):
         parser.add_argument('--shuffle_elements', type=bool_flag, default="false", help="shuffle the elements of the adjacency matrix")
         parser.add_argument('--nosep', type=bool_flag, default="true", help='separator (for adjacency and double edge)')
         parser.add_argument('--pow2base', type=int, default=1, help='Number of adjacency entries to code together')
+        parser.add_argument('--balanced_search', type=bool_flag, default="false", help='when removing points on grid, do not be too greedy')
 

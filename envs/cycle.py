@@ -93,7 +93,9 @@ class CycleDataPoint(DataPoint):
     def _cycles_computation(self):
         return
     
-    def mutate(self, n):
+    def mutate_and_search(self, n):
+        if n > 0:
+            np.random.seed(None)
         for _ in range(n):
             i = np.random.randint(1,self.N)
             j = np.random.randint(i)
