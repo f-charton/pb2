@@ -39,29 +39,28 @@ def generate_and_score(args, classname):
                 data.extend(d)
     return data
 
-def select_best(n, data, sampling_method="top", pow_score=1.0, exp_score=1.0):
+def select_best(n, data, scoring_method="top", pow_score=1.0, exp_score=1.0):
     """
-    Select the n-best data shuffled
-    With sampling_method="top", we select the top n data
-    With sampling_method="pow", sample with probability ∝ score^pow_score
-    With sampling_method="exp", sample with probability ∝ exp(exp_score * (score - max_score))
+    With scoring_method="top", we select the top n data
+    With scoring_method="pow", sample with probability ∝ score^pow_score
+    With scoring_method="exp", sample with probability ∝ exp(exp_score * (score - max_score))
     """
     if len(data) <= n:
         return data
     # TODO: is this needed?
     # to_shuff = data.copy()
 
-    if sampling_method == "top":
+    if scoring_method == "top":
         sorted_data = sorted(data, key=lambda x: x.score, reverse=True)
         selected = sorted_data[:n]
 
     else:
         scores = np.array([x.score for x in data])
         
-        if sampling_method == "pow":
+        if scoring_method == "pow":
             weights = np.power(np.maximum(scores, 0), pow_score)
         
-        elif sampling_method == "exp":
+        elif scoring_method == "exp":
             max_score = scores.max()
             weights = np.exp(exp_score * (scores - max_score))
                 
@@ -108,9 +107,9 @@ def update_datasets(args, data, train_set, test_set, train_path, test_path):
         if aft / (bef+1) < 0.9:
             inc_temp = True
     if args.new_proportion > 0.0:
-        new_data = select_best(int(args.new_proportion*args.pop_size), data, args.sampling_method, args.sampling_pow_score, args.sampling_exp_score)
+        new_data = select_best(int(args.new_proportion*args.pop_size), data, args.scoring_method, args.scoring_pow_score, args.scoring_exp_score)
     else:
-        new_data = select_best(args.pop_size, data, args.sampling_method, args.sampling_pow_score, args.sampling_exp_score)
+        new_data = select_best(args.pop_size, data, args.scoring_method, args.scoring_pow_score, args.scoring_exp_score)
     
     if len(new_data) >= 2* args.ntest or test_set is None:
         new_train, test_set = make_train_test(new_data, args.ntest)
@@ -122,9 +121,9 @@ def update_datasets(args, data, train_set, test_set, train_path, test_path):
         train_set, new_train = compute_unique_data(train_set, new_train)
         logger.info(f"Unique data computed for original train set: {len(train_set)}, generated train set: {len(new_train)}")
     if args.new_proportion > 0.0:
-        train_set = select_best(int((1.0-args.new_proportion)*args.pop_size), train_set, args.sampling_method, args.sampling_pow_score, args.sampling_exp_score) + new_train
+        train_set = select_best(int((1.0-args.new_proportion)*args.pop_size), train_set, args.scoring_method, args.scoring_pow_score, args.scoring_exp_score) + new_train
     else:    
-        train_set = select_best(args.pop_size, train_set + new_train, args.sampling_method, args.sampling_pow_score, args.sampling_exp_score)
+        train_set = select_best(args.pop_size, train_set + new_train, args.scoring_method, args.scoring_pow_score, args.scoring_exp_score)
     logger.info(f"Final train and test generated. Size are train: {len(train_set)}, test {len(test_set)}")
 
     pickle.dump(test_set, open(test_path, "wb"))
