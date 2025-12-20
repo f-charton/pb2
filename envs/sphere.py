@@ -180,7 +180,7 @@ def _greedy_remove_jittered(matrix, cospherical, N):
     if num_tuples == 0:
         return
 
-    active = np.ones(num_tuples, dtype=np.bool_)
+    active = np.ones(num_tuples, dtype=np.uint8)
 
     point_count = np.zeros((N, N, N), dtype=np.int32)
     for t in range(num_tuples):
@@ -237,7 +237,7 @@ class SphereDataPoint(DataPoint):
 
     def __init__(self, init=False):
         super().__init__()
-        self.matrix = np.zeros((self.N, self.N, self.N), dtype=np.bool_)
+        self.matrix = np.zeros((self.N, self.N, self.N), dtype=np.uint8)
         self.cospherical = np.empty((0, 15), dtype=np.int32)
         if init:
             self._add_points_greedily()

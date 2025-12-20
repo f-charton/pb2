@@ -14,7 +14,7 @@ class CycleDataPoint(DataPoint):
 
     def __init__(self, init=False):
         super().__init__()
-        self.matrix = np.zeros((self.N, self.N), dtype=np.bool_)
+        self.matrix = np.zeros((self.N, self.N), dtype=np.uint8)
         self.cycles = []
 
         if init:
