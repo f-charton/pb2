@@ -15,6 +15,7 @@ from utils import bool_flag
 logger = getLogger()
 
 # Sidon utils
+# https://oeis.org/A143824/b143824.txt
 
 def _parse_baseN(digits, base, limit=None):
     acc = 0
