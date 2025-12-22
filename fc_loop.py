@@ -84,6 +84,7 @@ def get_parser():
     parser.add_argument('--scoring_exp_score', type=float, default=1.0, help="exp score for scoring: if scoring_method is exp, this is the multiplier for the exp")
     parser.add_argument('--keep_only_unique', type=bool_flag, default="true", help='keep only unique data')
     parser.add_argument("--always_reload", type=bool_flag, default="false",help="reload best model before generation")
+    parser.add_argument("--save_best", type=bool_flag, default="true", help="save best model based on test loss")
 # de
 
     # path and ports
@@ -175,7 +176,7 @@ def train(model, args, loader, optim, test_dataset, current_best_loss=None):
             train_loss = curr_loss / args.num_eval_steps
             test_loss = evaluate(model, test_dataset, args.device, batch_size=100, max_batches=10)
             logger.info(f"step {step + 1} train loss: {train_loss} test loss: {test_loss}")
-            if test_loss < best_loss:
+            if args.save_best and test_loss < best_loss:
                 model_path = os.path.join(args.dump_path, "model.pt")
                 optimizer_path = os.path.join(args.dump_path, "optimizer.pt")
                 torch.save(model.state_dict(), model_path)
@@ -183,6 +184,12 @@ def train(model, args, loader, optim, test_dataset, current_best_loss=None):
                 logger.info(f"test loss {test_loss} is the best so far, saved model to {model_path}")
                 best_loss = test_loss
             curr_loss = 0
+
+    if not args.save_best:
+        model_path = os.path.join(args.dump_path, "model.pt")
+        optimizer_path = os.path.join(args.dump_path, "optimizer.pt")
+        torch.save(model.state_dict(), model_path)
+        torch.save(optim.state_dict(), optimizer_path)
 
     return best_loss
     
