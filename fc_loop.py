@@ -292,9 +292,11 @@ def log_resources(label):
     logger.info(f"[{label}] CPU: {cpu_percent:.1f}% | RAM: {rss_mb:.1f}MB")
 
 
-def write_important_metrics(metrics, epoch, metric_file):
+def write_important_metrics(metrics, epoch, metric_file, command=None):
     if metrics is not None:
         with open(metric_file, "a") as f:
+            if command is not None:
+                f.write(f"command: {command}\n")
             f.write(f"epoch: {epoch}\n")
             f.write(f"mean: {metrics['mean']}\n")
             f.write(f"median: {metrics['median']}\n")
@@ -387,7 +389,7 @@ if __name__ == '__main__':
         temperature = args.temperature
 
     metric_file = os.path.join(args.dump_path, "metrics.txt")
-    write_important_metrics(metrics, n_epoch, metric_file)
+    write_important_metrics(metrics, n_epoch, metric_file, command=args.command)
 
     for epoch in range(n_epoch, args.max_epochs):
         logger.info(f"==== Starting Epoch {n_epoch} =====")
