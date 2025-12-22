@@ -102,13 +102,18 @@ class SidonSetDataPoint(DataPoint):
         order = list(range(self.N + 1))
         random.shuffle(order)
         added = 0
-        for i in order:
-            if i not in self.val:
-                self.val.append(i)
+        i = 0
+        while i<self.N and added < n:
+            el = order[i]
+            if el not in self.val:
+                self.val.append(el)
                 added += 1
             if added == n:
                 break
+            i += 1
         self.val = sorted(self.val)
+        self.calc_features()
+        self.calc_score()
         self.local_search()
 
 
