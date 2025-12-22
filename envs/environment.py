@@ -29,7 +29,7 @@ class DataPoint(ABC):
     def redeem(self):
         return
     
-    def mutate_and_search(self, n):
+    def mutate_and_search(self, n) -> None:
         self.local_search()
 
     def generate_and_score(self):
@@ -48,19 +48,21 @@ class DataPoint(ABC):
             cls._update_class_params(pars)
         for _ in range(n):
             d = cls(init=True)
+            # print("HERE val",d.val)
             if d.score >=0:
                 out.append(d)
-        return out 
+        # print("HERE out",out)
+        return out
 
 
-    
+
 class BaseEnvironment(object):
     data_class = None
     SPECIAL_SYMBOLS = ["SEP","EOS","PAD","BOS"]
 
     def __init__(self, params):
-        return 
-    
+        return
+
     def read_data(self, input_file):
         data = []
         with open(input_file, "r") as file:
@@ -68,7 +70,7 @@ class BaseEnvironment(object):
                 d = self.data_class.from_string(line)
                 data.append(d)
         return data
-    
+
 
 
 

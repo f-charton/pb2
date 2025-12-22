@@ -93,6 +93,25 @@ class SidonSetDataPoint(DataPoint):
         pass
 
 
+    def mutate_and_search(self, n) -> None:
+        """
+        Very basic mutation of the examples followed by a local search
+        :param n_mut: number of points to add
+        """
+        order = list(range(self.N + 1))
+        random.shuffle(order)
+        added = 0
+        for i in order:
+            if i not in self.val:
+                self.val.append(i)
+                added += 1
+            if added == n:
+                break
+        sorted(self.val)
+        self.local_search()
+
+
+
     def local_search(self) -> None:
         """
         Very basic search: incremental hill-climb with simulated annealing.
@@ -218,10 +237,11 @@ class SidonSetDataPoint(DataPoint):
         all the positive differences a-x for a>x are distinct (here uses |x-a|)
         """
         order = list(range(self.N + 1))
+        used_diff = [False] * (self.N + 1)  #Store the positive differences
+
         random.shuffle(order)
         A = sorted(init_val.copy()) if init_val is not None else []
 
-        used_diff = [False] * (self.N + 1)  #Store the positive differences
         for i in range(len(A)):
             for j in range(i+1, len(A)):
                 d = A[j] - A[i]

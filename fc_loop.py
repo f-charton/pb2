@@ -430,7 +430,7 @@ if __name__ == '__main__':
 
         new_data = sample_and_score(model, args, stoi, itos, env, temperature, args.temp_span)
         log_resources(f"Epoch {epoch} AFTER_SAMPLE")
-        do_stats(-1, data=new_data)
+        # do_stats(-1, data=new_data) # Moved inside update_datasets before updating but after deduplicating.
 
         if args.device == "cuda":
             torch.cuda.empty_cache()

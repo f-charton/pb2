@@ -66,7 +66,7 @@ class SidonSetDataPoint(DataPoint):
             if params.init_k > 0:
                 target_k = int(params.init_k)
             elif params.init_k == 0:
-                target_k = max(1, int(math.sqrt(self.N)))
+                target_k = max(1, int(math.sqrt(self.N)+math.sqrt(math.sqrt(self.N))))
             else:
                 target_k = None
             if self.init_method == "random_greedy":

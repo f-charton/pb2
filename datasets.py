@@ -9,6 +9,8 @@ import numpy as np
 from concurrent.futures import ProcessPoolExecutor
 from itertools import repeat, chain
 
+from envs.environment import do_stats
+
 
 logger = getLogger()
 
@@ -104,6 +106,7 @@ def update_datasets(args, data, train_set, test_set, train_path, test_path):
         data, _ = compute_unique_data(data)
         aft = len(data)
         logger.info(f"Unique processing: {aft} examples left, {bef-aft} duplicates")
+        do_stats(-1,data)
         if aft / (bef+1) < 0.9:
             inc_temp = True
     if args.new_proportion > 0.0:
