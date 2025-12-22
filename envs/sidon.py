@@ -107,7 +107,7 @@ class SidonSetDataPoint(DataPoint):
                 added += 1
             if added == n:
                 break
-        sorted(self.val)
+        self.val = sorted(self.val)
         self.local_search()
 
 
