@@ -318,7 +318,7 @@ class SphereDataPoint(DataPoint):
             i = np.random.randint(self.N)
             j = np.random.randint(self.N)
             k = np.random.randint(self.N)
-            self.matrix[i, j, k] = 1
+            self.matrix[i, j, k] = 1 - self.matrix[i, j, k]
         self.local_search()
 
     def local_search(self):

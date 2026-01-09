@@ -99,8 +99,8 @@ class CycleDataPoint(DataPoint):
         for _ in range(np.random.randint(n+1)):
             i = np.random.randint(1,self.N)
             j = np.random.randint(i)
-            self.matrix[i][j]=1
-            self.matrix[j][i]=1
+            self.matrix[i][j]=1 - self.matrix[i][j]
+            self.matrix[j][i]=1 - self.matrix[j][i]
         self.local_search()
 
 
