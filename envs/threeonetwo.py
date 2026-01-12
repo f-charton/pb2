@@ -207,6 +207,15 @@ class ThreeOneTwoDataPoint(DataPoint):
         points_arr = np.ascontiguousarray(points, dtype=np.int32)
         self.cycles = _cycles_computation_jittered(points_arr, len(points_arr))
 
+    def mutate_and_search(self, n):
+        if n > 0:
+            np.random.seed(None)
+        for _ in range(np.random.randint(n+1)):
+            i = np.random.randint(self.N)
+            j = np.random.randint(self.N)
+            self.matrix[i, j] = 1 - self.matrix[i, j]
+        self.local_search()
+
     def local_search(self):
         self._cycles_computation()
         self._remove_edges_greedily()
