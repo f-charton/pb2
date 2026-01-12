@@ -3,7 +3,7 @@ from concurrent.futures import ProcessPoolExecutor
 from itertools import repeat
 from logging import getLogger
 import statistics
-from collections import Counter
+from collections import Counter, defaultdict
 import numpy as np
 
 logger=getLogger()
@@ -75,48 +75,63 @@ class BaseEnvironment(object):
 
 
 
+def compute_stats(scores, label):
+    num_bins = 200
+    if len(scores) == 0:
+        logger.info(f"[{label}] No valid examples")
+        return None
+
+    mean = statistics.mean(scores)
+    median = statistics.median(scores)
+    stdev = statistics.stdev(scores) if len(scores) > 1 else 0.0
+    top_1_percentile = statistics.quantiles(scores, n=100)[-1] if len(scores) >= 100 else max(scores)
+    max_score = max(scores)
+    
+    logger.info(f"[{label}] Valid examples: {len(scores)}")
+    logger.info(f"[{label}] Mean score: {mean}")
+    logger.info(f"[{label}] Median score: {median}")
+    logger.info(f"[{label}] Stdev score: {stdev}")
+    logger.info(f"[{label}] Max score: {max_score}")
+    logger.info(f"[{label}] Top 1 percentile score: {top_1_percentile}")
+
+    logger.info(f"[{label}] Distribution of scores:")
+    counts = Counter(sorted(scores))
+    if len(counts) > num_bins:
+        min_score, max_score = min(scores), max(scores)
+        bin_width = (max_score - min_score) / num_bins
+        bins = Counter()
+        for score, count in counts.items():
+            bin_idx = min(int((score - min_score) / bin_width), num_bins - 1)
+            bin_start = min_score + bin_idx * bin_width
+            bin_end = bin_start + bin_width
+            bins[(bin_start, bin_end)] += count
+        for (start, end), count in bins.items():
+            logger.info(f"[{label}] Score [{start:.2f}, {end:.2f}): Count: {count}")
+    else:
+        for score, count in counts.items():
+            logger.info(f"[{label}] Score {score}: Count: {count}")
+    logger.info("--------------------------------")
+    return {"mean": mean, "median": median, "top_1_percentile": top_1_percentile, "max": max_score}
+
 
 def do_stats(n_invalid, data):
     """
     Compute and log statistics
     """
-    scores = [d.score for d in data if d.score >= 0]
-    num_bins = 200
     logger.info(f"### Score distribution ###")
     if n_invalid >= 0:
-        # Evaluation during training
-        logger.info(f"Invalid examples: before local search: {n_invalid}, after: {len(data) - len(scores)}")
-    if len(scores) > 0:
-        mean = statistics.mean(scores)
-        median = statistics.median(scores)
-        stdev = statistics.stdev(scores)
-        top_1_percentile = statistics.quantiles(scores, n=100)[-1]
-        max_score = max(scores)
-        logger.info(f"Valid examples {len(scores)}")
-        logger.info(f"Mean score: {mean}")
-        logger.info(f"Median score: {median}")
-        logger.info(f"stdev score: {stdev}")
-        logger.info(f"Max score: {max_score}")
-        logger.info(f"Top 1 percentile score: {top_1_percentile}")
-        logger.info("distribution of scores")
+        logger.info(f"Invalid examples: before local search: {n_invalid}, after: {len([d for d in data if d.score < 0])}")
 
-        counts = Counter(sorted(scores))
-        if len(counts) > num_bins:
-            min_score, max_score = min(scores), max(scores)
-            bin_width = (max_score - min_score) / num_bins
-            bins = Counter()
-            for score, count in counts.items():
-                bin_idx = min(int((score - min_score) / bin_width), num_bins - 1)
-                bin_start = min_score + bin_idx * bin_width
-                bin_end = bin_start + bin_width
-                bins[(bin_start, bin_end)] += count
-            for (start, end), count in bins.items():
-                logger.info(f"Score [{start:.2f}, {end:.2f}): Count: {count}")
-        else:
-            for score, count in counts.items():
-                logger.info(f"Score {score}: Count: {count}")
-        return {"mean": mean, "median": median, "top_1_percentile": top_1_percentile, "max": max_score}
-    return None
+    groups = defaultdict(list)
+    for d in data:
+        if d.score >= 0:
+            groups[d.N].append(d.score)
+
+    result = {}
+    for n_value in sorted(groups.keys()):
+        result[n_value] = compute_stats(scores=groups[n_value], label=f"N={n_value}")
+
+    return result
 
 def _do_score(d, always_search:bool = False, redeem:bool = False, mutation:int = 0,pars=None):
     invalid = 0

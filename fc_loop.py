@@ -303,16 +303,16 @@ def log_resources(label):
     logger.info(f"[{label}] CPU: {cpu_percent:.1f}% | RAM: {rss_mb:.1f}MB")
 
 
-def write_important_metrics(metrics, epoch, metric_file, command=None):
+def write_important_metrics(metrics, epoch, metric_file, command=None, log_all_N=False):
     if metrics is not None:
         with open(metric_file, "a") as f:
             if command is not None:
                 f.write(f"command: {command}\n")
             f.write(f"epoch: {epoch}\n")
-            f.write(f"mean: {metrics['mean']}\n")
-            f.write(f"median: {metrics['median']}\n")
-            f.write(f"top_1_percentile: {metrics['top_1_percentile']}\n")
-            f.write(f"max: {metrics['max']}\n")
+            n_values = sorted(metrics.keys()) if log_all_N else [max(metrics.keys())]
+            for n_value in n_values:
+                f.write(f"N: {n_value} | mean: {metrics[n_value]['mean']} | median: {metrics[n_value]['median']} | top_1_percentile: {metrics[n_value]['top_1_percentile']} | max: {metrics[n_value]['max']}\n")
+            f.write("--------------------------------\n")
 
 
 if __name__ == '__main__':
@@ -399,8 +399,10 @@ if __name__ == '__main__':
     else:
         temperature = args.temperature
 
-    metric_file = os.path.join(args.dump_path, "metrics.txt")
-    write_important_metrics(metrics, n_epoch, metric_file, command=args.command)
+    metric_file_interesting_N = os.path.join(args.dump_path, "metrics.txt")
+    metric_file_all_N = os.path.join(args.dump_path, "metrics_all_N.txt")
+    write_important_metrics(metrics, n_epoch, metric_file_interesting_N, command=args.command, log_all_N=False)
+    write_important_metrics(metrics, n_epoch, metric_file_all_N, command=args.command, log_all_N=True)
 
     for epoch in range(n_epoch, args.max_epochs):
         logger.info(f"==== Starting Epoch {n_epoch} =====")
@@ -472,4 +474,5 @@ if __name__ == '__main__':
         with open(temp_file, "w") as f:
             f.write(str(temperature))
    
-        write_important_metrics(metrics, n_epoch, metric_file)
+        write_important_metrics(metrics, n_epoch, metric_file_interesting_N, log_all_N=False)
+        write_important_metrics(metrics, n_epoch, metric_file_all_N, log_all_N=True)
