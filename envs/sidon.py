@@ -32,9 +32,9 @@ class SidonSetDataPoint(DataPoint):
     Candidate Sidon set. The candidate is a Sidon set if the number of collisions is zero.
     """
     random_greedy_search = True
-    def __init__(self, val:Optional[List]=None, init=False):
+    def __init__(self, val:Optional[List]=None, N:int=None, init=False):
         super().__init__()
-
+        self.N = N
         total_prob = self.insert_prob + self.delete_prob + self.shift_prob
         if total_prob <= 0:
             self.insert_prob, self.delete_prob, self.shift_prob = 0.35, 0.10, 0.55
@@ -613,15 +613,11 @@ class SidonSetDataPoint(DataPoint):
 
     @classmethod
     def _update_class_params(cls,pars):
-        cls.N, cls.M, cls.hard, cls.insert_prob, cls.delete_prob, cls.shift_prob, cls.temp, cls.temp_decay, cls.init_method, cls.init_k, cls.jitter_init, cls.steps, cls.random_greedy_search = pars
+        cls.M, cls.hard, cls.insert_prob, cls.delete_prob, cls.shift_prob, cls.temp, cls.temp_decay, cls.init_method, cls.init_k, cls.jitter_init, cls.steps, cls.random_greedy_search = pars
 
     @classmethod
     def _save_class_params(cls):
-        return (cls.N, cls.M, cls.hard, cls.insert_prob, cls.delete_prob, cls.shift_prob, cls.temp, cls.temp_decay, cls.init_method, cls.init_k, cls.jitter_init, cls.steps, cls.random_greedy_search)
-
-    @classmethod
-    def _batch_generate_and_score(cls,n, pars=None):
-        return super()._batch_generate_and_score(n,pars)
+        return (cls.M, cls.hard, cls.insert_prob, cls.delete_prob, cls.shift_prob, cls.temp, cls.temp_decay, cls.init_method, cls.init_k, cls.jitter_init, cls.steps, cls.random_greedy_search)
 
 
 
@@ -630,7 +626,6 @@ class SidonSetEnvironment(BaseEnvironment):
 
     def __init__(self, params):
         super().__init__(params)
-        self.data_class.N = int(params.N)
         self.data_class.M = int(params.M)
         self.data_class.hard = params.hard
         self.data_class.jitter_init = params.jitter_init
@@ -652,7 +647,7 @@ class SidonSetEnvironment(BaseEnvironment):
         self.data_class.shift_prob  = float(params.shift_prob)
         self.data_class.random_greedy_search = params.random_greedy_search
 
-        self.tokenizer = SidonTokenizer(self.data_class, int(params.N), params.nosep, params.base, self.SPECIAL_SYMBOLS, separator="SEP")
+        self.tokenizer = SidonTokenizer(self.data_class, int(params.min_N), int(params.max_N), params.nosep, params.base, self.SPECIAL_SYMBOLS, separator="SEP")
 
 
 
@@ -661,7 +656,8 @@ class SidonSetEnvironment(BaseEnvironment):
         """
         Register environment parameters.
         """
-        parser.add_argument('--N', type=int, default="500", help='Defines the set {0,....,N} in which the Sidon subset is looked for')
+        parser.add_argument('--min_N', type=int, default="500", help='Min N that defines the set {0,....,N} in which the Sidon subset is looked for')
+        parser.add_argument('--max_N', type=int, default="500", help='Max N that defines the set {0,....,N} in which the Sidon subset is looked for')
         parser.add_argument('--M', type=int, default="1", help='reward weight for length of Sidon Sets')
         parser.add_argument('--base', type=int, default="10", help='reward weight for length of Sidon Sets')
         parser.add_argument('--hard', type=bool_flag, default="true", help='whether only sidon sets are accepted')

@@ -93,39 +93,39 @@ def _has_isosceles_conflict(points_arr, n_points, new_x, new_y):
 
 
 @njit(cache=True)
-def _expand_to_real_matrix(matrix, matrix_real, N_half, N):
-    for x in range(N_half):
-        for y in range(N_half):
+def _expand_to_real_matrix(matrix, matrix_real, N):
+    for x in range(N):
+        for y in range(N):
             if matrix[x, y] == 1:
                 matrix_real[x, y] = 1
-                matrix_real[N - 1 - x, y] = 1
-                matrix_real[x, N - 1 - y] = 1
-                matrix_real[N - 1 - x, N - 1 - y] = 1
+                matrix_real[2 * N - 1 - x, y] = 1
+                matrix_real[x, 2 * N - 1 - y] = 1
+                matrix_real[2 * N - 1 - x, 2 * N - 1 - y] = 1
 
 
 @njit(cache=True)
-def _greedy_add_symmetric(matrix, matrix_real, candidates, N_half, N):
-    max_points = N * N
+def _greedy_add_symmetric(matrix, matrix_real, candidates, N):
+    max_points = 4 * N * N
     points_arr = np.empty((max_points, 2), dtype=np.int32)
     n_points = 0
     
-    for x in range(N):
-        for y in range(N):
+    for x in range(2 * N):
+        for y in range(2 * N):
             if matrix_real[x, y] == 1:
                 points_arr[n_points, 0] = x
                 points_arr[n_points, 1] = y
                 n_points += 1
     
     for enc in candidates:
-        x, y = enc // N_half, enc % N_half
+        x, y = enc // N, enc % N
         if matrix[x, y] == 1:
             continue
         
         sym_points = [
             (x, y),
-            (N - 1 - x, y),
-            (x, N - 1 - y),
-            (N - 1 - x, N - 1 - y)
+            (2 * N - 1 - x, y),
+            (x, 2 * N - 1 - y),
+            (2 * N - 1 - x, 2 * N - 1 - y)
         ]
         
         has_conflict = False
@@ -145,7 +145,7 @@ def _greedy_add_symmetric(matrix, matrix_real, candidates, N_half, N):
 
 
 @njit(cache=True)
-def _greedy_remove_symmetric(matrix, matrix_real, triangles, N_half, N, random_floats):
+def _greedy_remove_symmetric(matrix, matrix_real, triangles, N, random_floats):
     num_triangles = len(triangles)
     if num_triangles == 0:
         return
@@ -154,7 +154,7 @@ def _greedy_remove_symmetric(matrix, matrix_real, triangles, N_half, N, random_f
     
     active = np.ones(num_triangles, dtype=np.uint8)
     
-    point_count = np.zeros((N, N), dtype=np.int32)
+    point_count = np.zeros((2 * N, 2 * N), dtype=np.int32)
     for t in range(num_triangles):
         point_count[triangles[t, 0], triangles[t, 1]] += 1
         point_count[triangles[t, 2], triangles[t, 3]] += 1
@@ -163,21 +163,21 @@ def _greedy_remove_symmetric(matrix, matrix_real, triangles, N_half, N, random_f
     num_active = num_triangles
     
     if use_random:
-        problematic_x = np.empty(N_half * N_half, dtype=np.int32)
-        problematic_y = np.empty(N_half * N_half, dtype=np.int32)
+        problematic_x = np.empty(N * N, dtype=np.int32)
+        problematic_y = np.empty(N * N, dtype=np.int32)
     
     step_idx = 0
     
     while num_active > 0:
         if use_random:
             n_problematic = 0
-            for x in range(N_half):
-                for y in range(N_half):
+            for x in range(N):
+                for y in range(N):
                     if matrix[x, y] == 1:
                         total_count = (point_count[x, y] + 
-                                       point_count[N - 1 - x, y] + 
-                                       point_count[x, N - 1 - y] + 
-                                       point_count[N - 1 - x, N - 1 - y])
+                                       point_count[2 * N - 1 - x, y] + 
+                                       point_count[x, 2 * N - 1 - y] + 
+                                       point_count[2 * N - 1 - x, 2 * N - 1 - y])
                         if total_count > 0:
                             problematic_x[n_problematic] = x
                             problematic_y[n_problematic] = y
@@ -193,13 +193,13 @@ def _greedy_remove_symmetric(matrix, matrix_real, triangles, N_half, N, random_f
         else:
             max_count = 0
             best_x, best_y = -1, -1
-            for x in range(N_half):
-                for y in range(N_half):
+            for x in range(N):
+                for y in range(N):
                     if matrix[x, y] == 1:
                         total_count = (point_count[x, y] + 
-                                       point_count[N - 1 - x, y] + 
-                                       point_count[x, N - 1 - y] + 
-                                       point_count[N - 1 - x, N - 1 - y])
+                                       point_count[2 * N - 1 - x, y] + 
+                                       point_count[x, 2 * N - 1 - y] + 
+                                       point_count[2 * N - 1 - x, 2 * N - 1 - y])
                         if total_count > max_count:
                             max_count = total_count
                             best_x, best_y = x, y
@@ -211,9 +211,9 @@ def _greedy_remove_symmetric(matrix, matrix_real, triangles, N_half, N, random_f
         
         sym_points = [
             (best_x, best_y),
-            (N - 1 - best_x, best_y),
-            (best_x, N - 1 - best_y),
-            (N - 1 - best_x, N - 1 - best_y)
+            (2 * N - 1 - best_x, best_y),
+            (best_x, 2 * N - 1 - best_y),
+            (2 * N - 1 - best_x, 2 * N - 1 - best_y)
         ]
         
         for sx, sy in sym_points:
@@ -240,17 +240,16 @@ def _greedy_remove_symmetric(matrix, matrix_real, triangles, N_half, N, random_f
 
 
 class NoIsoscelesSymmetricDataPoint(DataPoint):
-    N = 4
     HARD = True
     PENALTY = 6
     MAKE_OBJECT_CANONICAL = False
     BALANCED = False
 
-    def __init__(self, init=False):
+    def __init__(self, N, init=False):
         super().__init__()
-        N_half = self.N // 2
-        self.matrix = np.zeros((N_half, N_half), dtype=np.uint8)
-        self.matrix_real = np.zeros((self.N, self.N), dtype=np.uint8)
+        self.N = N
+        self.matrix = np.zeros((self.N, self.N), dtype=np.uint8)
+        self.matrix_real = np.zeros((2 * self.N, 2 * self.N), dtype=np.uint8)
         self.isosceles = np.empty((0, 6), dtype=np.int32)
         if init:
             self._add_points_greedily()
@@ -262,8 +261,7 @@ class NoIsoscelesSymmetricDataPoint(DataPoint):
 
     def _sync_matrix_real(self):
         self.matrix_real.fill(0)
-        N_half = self.N // 2
-        _expand_to_real_matrix(self.matrix, self.matrix_real, N_half, self.N)
+        _expand_to_real_matrix(self.matrix, self.matrix_real, self.N)
 
     def calc_score(self):
         if self.HARD and self.isosceles.size > 0:
@@ -273,27 +271,24 @@ class NoIsoscelesSymmetricDataPoint(DataPoint):
 
     def calc_features(self):
         w = []
-        N_half = self.N // 2
-        for i in range(N_half):
-            for j in range(N_half):
+        for i in range(self.N):
+            for j in range(self.N):
                 w.append(self.matrix[i, j])
         self.features = ",".join(map(str, w))
 
     def _add_points_greedily(self):
         np.random.seed(None)
-        N_half = self.N // 2
-        candidates = np.arange(N_half * N_half, dtype=np.int32)
+        candidates = np.arange(self.N * self.N, dtype=np.int32)
         np.random.shuffle(candidates)
-        _greedy_add_symmetric(self.matrix, self.matrix_real, candidates, N_half, self.N)
+        _greedy_add_symmetric(self.matrix, self.matrix_real, candidates, self.N)
 
     def _remove_points_greedily(self):
         if self.isosceles.size > 0:
-            N_half = self.N // 2
             if self.BALANCED:
-                random_floats = np.random.random(N_half * N_half).astype(np.float32)
+                random_floats = np.random.random(self.N * self.N).astype(np.float32)
             else:
                 random_floats = np.empty(0, dtype=np.float32)
-            _greedy_remove_symmetric(self.matrix, self.matrix_real, self.isosceles, N_half, self.N, random_floats)
+            _greedy_remove_symmetric(self.matrix, self.matrix_real, self.isosceles, self.N, random_floats)
             self.isosceles = np.empty((0, 6), dtype=np.int32)
 
     def _isosceles_computation(self):
@@ -304,10 +299,9 @@ class NoIsoscelesSymmetricDataPoint(DataPoint):
     def mutate_and_search(self, n):
         if n > 0:
             np.random.seed(None)
-        N_half = self.N // 2
         for _ in range(np.random.randint(n+1)):
-            i = np.random.randint(N_half)
-            j = np.random.randint(N_half)
+            i = np.random.randint(self.N)
+            j = np.random.randint(self.N)
             self.matrix[i, j] = 1 - self.matrix[i, j]
         self._sync_matrix_real()
         self.local_search()
@@ -325,22 +319,15 @@ class NoIsoscelesSymmetricDataPoint(DataPoint):
 
     @classmethod
     def _update_class_params(cls, pars):
-        cls.N = pars[0]
-        cls.HARD = pars[1]
-        cls.MAKE_OBJECT_CANONICAL = pars[2]
-        cls.BALANCED = pars[3]
+        cls.HARD, cls.MAKE_OBJECT_CANONICAL, cls.BALANCED = pars
 
     @classmethod
     def _save_class_params(cls):
-        return (cls.N, cls.HARD, cls.MAKE_OBJECT_CANONICAL, cls.BALANCED)
-
-    @classmethod
-    def _batch_generate_and_score(cls, n, pars=None):
-        return super()._batch_generate_and_score(n, pars)
+        return (cls.HARD, cls.MAKE_OBJECT_CANONICAL, cls.BALANCED)
 
 
 class NoIsoscelesSymmetricEnvironment(BaseEnvironment):
-    # this problem lives in (N/2)^2, so we can use k=2
+    # this problem lives in N^2, so we can use k=2
     # this problem is not symmetric, so we can use is_adj_matrix_symmetric=False
     k = 2
     is_adj_matrix_symmetric = False
@@ -348,23 +335,19 @@ class NoIsoscelesSymmetricEnvironment(BaseEnvironment):
 
     def __init__(self, params):
         super().__init__(params)
-        assert params.N % 2 == 0, "N must be even for symmetric isosceles environment"
-        self.data_class.N = params.N
         self.data_class.HARD = params.hard
         self.data_class.MAKE_OBJECT_CANONICAL = params.make_object_canonical
         self.data_class.BALANCED = params.balanced_search
         
-        N_half = params.N // 2
-        
         encoding_augmentation = random_symmetry_2d if params.augment_data_representation else None
         if params.encoding_tokens == "single_integer":
-            self.tokenizer = SparseTokenizer(self.data_class, N_half, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, encoding_augmentation=encoding_augmentation)
+            self.tokenizer = SparseTokenizer(self.data_class, params.min_N, params.max_N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, encoding_augmentation=encoding_augmentation)
         elif params.encoding_tokens == "vector_k_integers":
-            self.tokenizer = SparseTokenizer(self.data_class, N_half, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=self.k, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, encoding_augmentation=encoding_augmentation)
+            self.tokenizer = SparseTokenizer(self.data_class, params.min_N, params.max_N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=self.k, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, encoding_augmentation=encoding_augmentation)
         elif params.encoding_tokens == "sequence_k_tokens":
-            self.tokenizer = SparseTokenizer(self.data_class, N_half, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, nosep=params.nosep, encoding_augmentation=encoding_augmentation)
+            self.tokenizer = SparseTokenizer(self.data_class, params.min_N, params.max_N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, nosep=params.nosep, encoding_augmentation=encoding_augmentation)
         elif params.encoding_tokens == "adjacency":
-            self.tokenizer = DenseTokenizer(self.data_class, N_half, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, nosep=params.nosep, pow2base=params.pow2base, encoding_augmentation=encoding_augmentation)
+            self.tokenizer = DenseTokenizer(self.data_class, params.min_N, params.max_N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, nosep=params.nosep, pow2base=params.pow2base, encoding_augmentation=encoding_augmentation)
         else:
             raise ValueError(f"Invalid encoding: {params.encoding_tokens}")
 
@@ -373,7 +356,8 @@ class NoIsoscelesSymmetricEnvironment(BaseEnvironment):
         """
         Register environment parameters.
         """
-        parser.add_argument('--N', type=int, default=30, help='Full grid size N (must be even). Reduced grid is N/2.')
+        parser.add_argument('--min_N', type=int, default=30, help='Min half grid size N. Total grid size is 2N')
+        parser.add_argument('--max_N', type=int, default=30, help='Max half grid size N. Total grid size is 2N')
         parser.add_argument('--hard', type=bool_flag, default="true", help='whether only isosceles-free point sets are accepted')
         parser.add_argument('--encoding_tokens', type=str, default="single_integer", help='single_integer/sequence_k_tokens/vector_k_integers/adjacency')
         parser.add_argument('--make_object_canonical', type=bool_flag, default="false", help="sort the grid by symmetry")

@@ -260,14 +260,14 @@ def _greedy_remove_jittered(matrix, cospherical, N, random_floats):
 
 
 class SphereDataPoint(DataPoint):
-    N = 4
     HARD = True
     PENALTY = 10
     MAKE_OBJECT_CANONICAL = False
     BALANCED = False
 
-    def __init__(self, init=False):
+    def __init__(self, N, init=False):
         super().__init__()
+        self.N = N
         self.matrix = np.zeros((self.N, self.N, self.N), dtype=np.uint8)
         self.cospherical = np.empty((0, 15), dtype=np.int32)
         if init:
@@ -333,18 +333,11 @@ class SphereDataPoint(DataPoint):
 
     @classmethod
     def _update_class_params(self, pars):
-        self.N = pars[0]
-        self.HARD = pars[1]
-        self.MAKE_OBJECT_CANONICAL = pars[2]
-        self.BALANCED = pars[3]
+        self.HARD, self.MAKE_OBJECT_CANONICAL, self.BALANCED = pars
 
     @classmethod
     def _save_class_params(self):
-        return (self.N, self.HARD, self.MAKE_OBJECT_CANONICAL, self.BALANCED)
-
-    @classmethod
-    def _batch_generate_and_score(cls, n, pars=None):
-        return super()._batch_generate_and_score(n, pars)
+        return (self.HARD, self.MAKE_OBJECT_CANONICAL, self.BALANCED)
 
 
 class SphereEnvironment(BaseEnvironment):
@@ -355,17 +348,16 @@ class SphereEnvironment(BaseEnvironment):
     data_class = SphereDataPoint
     def __init__(self, params):
         super().__init__(params)
-        self.data_class.N = params.N
         self.data_class.HARD = params.hard
         self.data_class.MAKE_OBJECT_CANONICAL = params.make_object_canonical
         self.data_class.BALANCED = params.balanced_search
         encoding_augmentation = random_symmetry_3d if params.augment_data_representation else None
         if params.encoding_tokens == "single_integer":
-            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, encoding_augmentation=encoding_augmentation)
+            self.tokenizer = SparseTokenizer(self.data_class, params.min_N, params.max_N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, encoding_augmentation=encoding_augmentation)
         elif params.encoding_tokens == "vector_k_integers":
-            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=self.k, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, encoding_augmentation=encoding_augmentation)
+            self.tokenizer = SparseTokenizer(self.data_class, params.min_N, params.max_N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=self.k, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, encoding_augmentation=encoding_augmentation)
         elif params.encoding_tokens == "sequence_k_tokens":
-            self.tokenizer = SparseTokenizer(self.data_class, params.N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, nosep=params.nosep, encoding_augmentation=encoding_augmentation)
+            self.tokenizer = SparseTokenizer(self.data_class, params.min_N, params.max_N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, nosep=params.nosep, encoding_augmentation=encoding_augmentation)
         else:
             raise ValueError(f"Invalid encoding: {params.encoding_tokens}")
 
@@ -374,7 +366,8 @@ class SphereEnvironment(BaseEnvironment):
         """
         Register environment parameters.
         """
-        parser.add_argument("--N", type=int, default=30, help="Number of vertices in the K-cycle-free graph")
+        parser.add_argument("--min_N", type=int, default=30, help="Min number of vertices in the K-cycle-free graph")
+        parser.add_argument("--max_N", type=int, default=30, help="Max number of vertices in the K-cycle-free graph")
         parser.add_argument("--hard", type=bool_flag, default="true", help="whether only K-cycle-free graphs are accepted")
         parser.add_argument("--encoding_tokens", type=str, default="single_integer", help="single_integer/sequence_k_tokens/vector_k_integers")
         parser.add_argument("--make_object_canonical", type=bool_flag, default="false", help="sort the matrix by symmetry")

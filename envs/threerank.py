@@ -326,10 +326,6 @@ class GroupClass(DataPoint):
     def _save_class_params(cls):
         return (cls.NB_AP,cls.reverse,cls.base,cls.primes,cls.max_int)
 
-    @classmethod
-    def _batch_generate_and_score(cls,n, pars=None):
-        return super()._batch_generate_and_score(n,pars)
-
 
 
 class ThreeRankEnvironment(BaseEnvironment):

@@ -70,6 +70,7 @@ image = (
     gpu="L4",
     timeout=24 * 60 * 60,
     volumes={DUMP_MOUNT_AT: vol},
+    retries=10,
 )
 def train(args = None):
     import shlex

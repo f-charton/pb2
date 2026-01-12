@@ -195,8 +195,6 @@ def train(model, args, loader, optim, test_dataset, current_best_loss=None):
     
 
 def sample_and_score(model, args, stoi, itos, env, temp, tempspan=0):
-    eos_token_id = stoi["EOS"]
-    bos_token_id = stoi["BOS"]
     sample_batch_size = args.gen_batch_size # reduce this if GPU crashes, increase it if sampling is slow
     todo = args.sample_only // sample_batch_size
     DETOK_CHUNK_SIZE = 10
@@ -267,11 +265,17 @@ def sample_and_score(model, args, stoi, itos, env, temp, tempspan=0):
                 scored_so_far = len(results)
             logger.info(f'{i*sample_batch_size} / {todo * sample_batch_size} samples generated, {scored_so_far} scored')
 
-        X_init = torch.full((sample_batch_size, 1, args.token_embeddings), bos_token_id, dtype=torch.long).to(args.device)
+        # X_init is a (batch, 1, token_embeddings) tensor where the first element is stoi[f"n{N}"] where N is a random number between min_N and max_N
+        # sampling_Ns are batch_size numbers between min_N and max_N
+        X_init = torch.empty((sample_batch_size, 1, args.token_embeddings), dtype=torch.long)
+        for idx in range(sample_batch_size):
+            # TODO: make sure we want to sample N uniformly
+            N = np.random.randint(args.min_N, args.max_N + 1)
+            X_init[idx, 0, :] = stoi[f"n{N}"]
+        X_init = X_init.to(args.device)
         top_k = args.top_k if args.top_k != -1 else None
-        X_samp = model.generate(X_init, args.max_len + 1, temperature=curr_temp, top_k=top_k, do_sample=True)
-        batch_numpy = X_samp[:, 1:, :].cpu().numpy()
-        del X_init, X_samp  # TODO: is this necessary?
+        batch_numpy = model.generate(X_init, args.max_len + 1, temperature=curr_temp, top_k=top_k, do_sample=True).cpu().numpy()
+        del X_init  # TODO: is this necessary?
         
         pending_batches.append(batch_numpy)
         
@@ -299,16 +303,16 @@ def log_resources(label):
     logger.info(f"[{label}] CPU: {cpu_percent:.1f}% | RAM: {rss_mb:.1f}MB")
 
 
-def write_important_metrics(metrics, epoch, metric_file, command=None):
+def write_important_metrics(metrics, epoch, metric_file, command=None, log_all_N=False):
     if metrics is not None:
         with open(metric_file, "a") as f:
             if command is not None:
                 f.write(f"command: {command}\n")
             f.write(f"epoch: {epoch}\n")
-            f.write(f"mean: {metrics['mean']}\n")
-            f.write(f"median: {metrics['median']}\n")
-            f.write(f"top_1_percentile: {metrics['top_1_percentile']}\n")
-            f.write(f"max: {metrics['max']}\n")
+            n_values = sorted(metrics.keys()) if log_all_N else [max(metrics.keys())]
+            for n_value in n_values:
+                f.write(f"N: {n_value} | mean: {metrics[n_value]['mean']} | median: {metrics[n_value]['median']} | top_1_percentile: {metrics[n_value]['top_1_percentile']} | max: {metrics[n_value]['max']}\n")
+            f.write("--------------------------------\n")
 
 
 if __name__ == '__main__':
@@ -395,8 +399,10 @@ if __name__ == '__main__':
     else:
         temperature = args.temperature
 
-    metric_file = os.path.join(args.dump_path, "metrics.txt")
-    write_important_metrics(metrics, n_epoch, metric_file, command=args.command)
+    metric_file_interesting_N = os.path.join(args.dump_path, "metrics.txt")
+    metric_file_all_N = os.path.join(args.dump_path, "metrics_all_N.txt")
+    write_important_metrics(metrics, n_epoch, metric_file_interesting_N, command=args.command, log_all_N=False)
+    write_important_metrics(metrics, n_epoch, metric_file_all_N, command=args.command, log_all_N=True)
 
     for epoch in range(n_epoch, args.max_epochs):
         logger.info(f"==== Starting Epoch {n_epoch} =====")
@@ -468,4 +474,5 @@ if __name__ == '__main__':
         with open(temp_file, "w") as f:
             f.write(str(temperature))
    
-        write_important_metrics(metrics, n_epoch, metric_file)
+        write_important_metrics(metrics, n_epoch, metric_file_interesting_N, log_all_N=False)
+        write_important_metrics(metrics, n_epoch, metric_file_all_N, log_all_N=True)
