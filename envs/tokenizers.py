@@ -47,9 +47,10 @@ class Tokenizer(ABC):
 
 
 class SparseTokenizer(Tokenizer):
-    def __init__(self, dataclass, N, k, is_adj_matrix_symmetric, extra_symbols, token_embeddings, encoding, shuffle_elements=False, nosep=None, encoding_augmentation=None):
+    def __init__(self, dataclass, min_N, max_N, k, is_adj_matrix_symmetric, extra_symbols, token_embeddings, encoding, shuffle_elements=False, nosep=None, encoding_augmentation=None):
         self.dataclass = dataclass
-        self.N = N
+        self.min_N = min_N
+        self.max_N = max_N
         self.k = k
         self.is_adj_matrix_symmetric = is_adj_matrix_symmetric
 
@@ -66,17 +67,23 @@ class SparseTokenizer(Tokenizer):
         self.stoi, self.itos = {}, {}
 
         if self.use_tuple_vocab:
-            for idx, el in enumerate(iterate_k_times(N, k, is_adj_matrix_symmetric)):
+            for idx, el in enumerate(iterate_k_times(max_N, k, is_adj_matrix_symmetric)):
                 self.stoi[el] = idx
                 self.itos[idx] = el
         else:
-            for idx in range(N):
+            for idx in range(max_N):
                 self.stoi[idx] = idx
                 self.itos[idx] = idx
         
+        len1 = len(self.stoi)
         for jdx, el in enumerate(extra_symbols):
-            self.stoi[el] = idx + jdx + 1
-            self.itos[idx + jdx + 1] = el
+            self.stoi[el] = len1 + jdx
+            self.itos[len1 + jdx] = el
+
+        len2 = len(self.stoi)
+        for kdx, el in enumerate(range(min_N, max_N + 1)):
+            self.stoi[f"n{el}"] = len2 + kdx
+            self.itos[len2 + kdx] = f"n{el}"
 
     def _iter_token_groups(self, ll):
         if not self.flatten_output:
@@ -99,8 +106,7 @@ class SparseTokenizer(Tokenizer):
             matrix = graph.matrix
 
         edges = []
-        w = []
-        for el in iterate_k_times(self.N, self.k, self.is_adj_matrix_symmetric):
+        for el in iterate_k_times(graph.N, self.k, self.is_adj_matrix_symmetric):
             if matrix[el] == 1:
                 edges.append(el)
 
@@ -112,6 +118,7 @@ class SparseTokenizer(Tokenizer):
                 edges = [tuple(np.random.permutation(list(el))) for el in edges]
 
         w = []
+        w.append(([self.stoi[f"n{graph.N}"]] if self.flatten_output else [self.stoi[f"n{graph.N}"]] * self.token_embeddings))
         for el in edges:
             tokens = [self.stoi[el]] if self.use_tuple_vocab else [self.stoi[x] for x in el]
             if self.flatten_output:
@@ -126,9 +133,12 @@ class SparseTokenizer(Tokenizer):
         
 
     def decode(self, ll):
+        # lst has shape (K, 1) so lst[0][0] is the first token, which is formatted as f"n{N}"
+        # therefore int(self.itos[lst[0][0]][1:]) extracts the number N
+        N = int(self.itos[ll[0][0]][1:])
         try:
-            graph = self.dataclass()
-            for tokens in self._iter_token_groups(ll):
+            graph = self.dataclass(N=N)
+            for tokens in self._iter_token_groups(ll[1:]):
                 if not tokens:
                     continue
                 
@@ -153,15 +163,13 @@ class SparseTokenizer(Tokenizer):
                     graph.matrix[el] = 1
         except:
             return None
-    # stupid but needed to please PoolExectutor
-    def decode_batch(self, data, pars=None):
-        return super().decode_batch(data, pars)
 
 
 class DenseTokenizer(Tokenizer):
-    def __init__(self, dataclass, N, k, is_adj_matrix_symmetric, extra_symbols, nosep, pow2base, encoding_augmentation=None):
+    def __init__(self, dataclass, min_N, max_N, k, is_adj_matrix_symmetric, extra_symbols, nosep, pow2base, encoding_augmentation=None):
         self.dataclass = dataclass
-        self.N = N
+        self.min_N = min_N
+        self.max_N = max_N
         self.k = k
         self.is_adj_matrix_symmetric = is_adj_matrix_symmetric
         self.nosep = nosep
@@ -174,19 +182,24 @@ class DenseTokenizer(Tokenizer):
         assert self.nosep or self.k == 2
 
         if self.nosep:
-            self.expected_elements_in_a_decoded_sequence = math.ceil(sum(1 for _ in iterate_k_times(self.N, self.k, self.is_adj_matrix_symmetric)) / self.pow2base)
+            self.expected_elements_in_a_decoded_sequence = math.ceil(sum(1 for _ in iterate_k_times(max_N, self.k, self.is_adj_matrix_symmetric)) / self.pow2base)
         else:
             if self.is_adj_matrix_symmetric:
-                self.expected_elements_in_a_decoded_sequence = sum(math.ceil(i / self.pow2base) for i in range(self.N)) + self.N
+                self.expected_elements_in_a_decoded_sequence = sum(math.ceil(i / self.pow2base) for i in range(max_N)) + max_N
             else:
-                self.expected_elements_in_a_decoded_sequence = self.N * math.ceil(self.N / self.pow2base) + self.N
+                self.expected_elements_in_a_decoded_sequence = max_N * math.ceil(max_N / self.pow2base) + max_N
 
         for idx, el in enumerate(range(2 ** pow2base)):
             self.stoi[el] = idx
             self.itos[idx] = el
+        len1 = len(self.stoi)
         for jdx, el in enumerate(extra_symbols):
-            self.stoi[el] = idx + jdx + 1
-            self.itos[idx + jdx + 1] = el
+            self.stoi[el] = len1 + jdx
+            self.itos[len1 + jdx] = el
+        len2 = len(self.stoi)
+        for kdx, el in enumerate(range(min_N, max_N + 1)):
+            self.stoi[f"n{el}"] = len2 + kdx
+            self.itos[len2 + kdx] = f"n{el}"
 
     def _pack_bits(self, bits):
         tokens = []
@@ -214,11 +227,11 @@ class DenseTokenizer(Tokenizer):
                     return bits
         return bits
 
-    def _row_indices(self, row):
+    def _row_indices(self, row, graph_N):
         if self.is_adj_matrix_symmetric:
-            return range(row + 1, self.N)
+            return range(row + 1, graph_N)
         else:
-            return range(self.N)
+            return range(graph_N)
 
     def encode(self, graph):
         if self.encoding_augmentation:
@@ -228,19 +241,22 @@ class DenseTokenizer(Tokenizer):
 
         w = []
         if self.nosep:
-            bits = (matrix[el] for el in iterate_k_times(self.N, self.k, self.is_adj_matrix_symmetric))
+            bits = (matrix[el] for el in iterate_k_times(graph.N, self.k, self.is_adj_matrix_symmetric))
             w = self._pack_bits(bits)
         else:
-            for i in range(self.N):
-                row_bits = (matrix[i, j] for j in self._row_indices(i))
+            for i in range(graph.N):
+                row_bits = (matrix[i, j] for j in self._row_indices(i, graph.N))
                 w.extend(self._pack_bits(row_bits))
                 w.append(self.stoi["SEP"])
         w.append(self.stoi["EOS"])
         return np.array(w, dtype=np.int32).reshape(-1, 1)
 
     def decode(self, ll):
+        # lst has shape (K, 1) so lst[0][0] is the first token, which is formatted as f"n{N}"
+        # therefore int(self.itos[lst[0][0]][1:]) extracts the number N
+        N = int(self.itos[ll[0][0]][1:])
         new_ll = []
-        for el in ll:
+        for el in ll[1:]:
             el = self.itos[el[0]]
             if el == "EOS":
                 break
@@ -251,13 +267,13 @@ class DenseTokenizer(Tokenizer):
         if len(ll) != self.expected_elements_in_a_decoded_sequence:
             return None
         try:
-            graph = self.dataclass()
+            graph = self.dataclass(N=N)
             if self.nosep:
-                total_bits = sum(1 for _ in iterate_k_times(self.N, self.k, self.is_adj_matrix_symmetric))
+                total_bits = sum(1 for _ in iterate_k_times(N, self.k, self.is_adj_matrix_symmetric))
                 bits = self._unpack_bits(ll, total_bits)
                 if len(bits) != total_bits:
                     return None
-                for bit, el in zip(bits, iterate_k_times(self.N, self.k, self.is_adj_matrix_symmetric)):
+                for bit, el in zip(bits, iterate_k_times(N, self.k, self.is_adj_matrix_symmetric)):
                     if bit == 1:
                         if self.is_adj_matrix_symmetric:
                             for permutation in permutations(el):
@@ -266,7 +282,7 @@ class DenseTokenizer(Tokenizer):
                             graph.matrix[el] = 1
             else:
                 idx = 0
-                for i in range(self.N):
+                for i in range(N):
                     row_indices = list(self._row_indices(i))
                     num_elements = len(row_indices)
                     tokens_for_row = math.ceil(num_elements / self.pow2base) if num_elements > 0 else 0
@@ -294,8 +310,9 @@ class DenseTokenizer(Tokenizer):
 
 
 class SidonTokenizer(Tokenizer):
-    def __init__(self, dataclass, N, nosep, base, extra_symbols, separator = "SEP"):
-        self.N = N
+    def __init__(self, dataclass, min_N, max_N, nosep, base, extra_symbols, separator = "SEP"):
+        self.min_N = min_N
+        self.max_N = max_N
         self.dataclass =  dataclass
         self.nosep = nosep
         self.separator = separator
@@ -305,12 +322,18 @@ class SidonTokenizer(Tokenizer):
         for idx, el in enumerate(range(self.base)):
             self.stoi[el] = idx
             self.itos[idx] = el
+        len1 = len(self.stoi)
         for jdx, el in enumerate(extra_symbols):
-            self.stoi[el] = idx + jdx + 1
-            self.itos[idx + jdx + 1] = el
+            self.stoi[el] = len1 + jdx
+            self.itos[len1 + jdx] = el
+        len2 = len(self.stoi)
+        for kdx, el in enumerate(range(min_N, max_N + 1)):
+            self.stoi[f"n{el}"] = len2 + kdx
+            self.itos[len2 + kdx] = f"n{el}"
 
     def encode(self, sidonset, reverse=False):
         w = []
+        w.append(self.stoi[f"n{sidonset.N}"])
         val = sidonset.val
         for el in val:
             v = el
@@ -328,9 +351,12 @@ class SidonTokenizer(Tokenizer):
         """
         Create a SidonSetDataPoint from a list
         """
+        # lst has shape (K, 1) so lst[0][0] is the first token, which is formatted as f"n{N}"
+        # therefore int(self.itos[lst[0][0]][1:]) extracts the number N
+        N = int(self.itos[lst[0][0]][1:])
         sub_lists = []
         current = []
-        for item in lst:
+        for item in lst[1:]:
             item = self.itos[item[0]]
             if item == "EOS":
                 break
@@ -360,7 +386,7 @@ class SidonTokenizer(Tokenizer):
                             raise ValueError(f"Digit {v} out of range for self.base {self.base}")
                         num = num * self.base + v
                     # print("HERE num", num)
-                if num > self.N:
+                if num > N:
                     print("HERE num pas ouf")
                     # return None #with this option, as soon as the model outputs a number above self.N we discard the full sequence
                     continue #at least for debug this option is a bit softer when the model is at the beginning of training and allows it to only remove the element that shouldn't be there,
@@ -373,9 +399,6 @@ class SidonTokenizer(Tokenizer):
             print(f"Empty decoded list for {lst} with sublists {sub_lists}.")
             return None
         val = sorted(result)
-        sidonpoint = self.dataclass(val=val,init=True)
+        sidonpoint = self.dataclass(val=val,N=N,init=True)
         return sidonpoint
 
-    # stupid but needed to please PoolExectutor
-    def decode_batch(self, data, pars=None):
-        return super().decode_batch(data, pars)

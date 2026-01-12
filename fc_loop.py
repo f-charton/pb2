@@ -195,8 +195,6 @@ def train(model, args, loader, optim, test_dataset, current_best_loss=None):
     
 
 def sample_and_score(model, args, stoi, itos, env, temp, tempspan=0):
-    eos_token_id = stoi["EOS"]
-    bos_token_id = stoi["BOS"]
     sample_batch_size = args.gen_batch_size # reduce this if GPU crashes, increase it if sampling is slow
     todo = args.sample_only // sample_batch_size
     DETOK_CHUNK_SIZE = 10
@@ -267,11 +265,17 @@ def sample_and_score(model, args, stoi, itos, env, temp, tempspan=0):
                 scored_so_far = len(results)
             logger.info(f'{i*sample_batch_size} / {todo * sample_batch_size} samples generated, {scored_so_far} scored')
 
-        X_init = torch.full((sample_batch_size, 1, args.token_embeddings), bos_token_id, dtype=torch.long).to(args.device)
+        # X_init is a (batch, 1, token_embeddings) tensor where the first element is stoi[f"n{N}"] where N is a random number between min_N and max_N
+        # sampling_Ns are batch_size numbers between min_N and max_N
+        X_init = torch.empty((sample_batch_size, 1, args.token_embeddings), dtype=torch.long)
+        for idx in range(sample_batch_size):
+            # TODO: make sure we want to sample N uniformly
+            N = np.random.randint(args.min_N, args.max_N + 1)
+            X_init[idx, 0, :] = stoi[f"n{N}"]
+        X_init = X_init.to(args.device)
         top_k = args.top_k if args.top_k != -1 else None
-        X_samp = model.generate(X_init, args.max_len + 1, temperature=curr_temp, top_k=top_k, do_sample=True)
-        batch_numpy = X_samp[:, 1:, :].cpu().numpy()
-        del X_init, X_samp  # TODO: is this necessary?
+        batch_numpy = model.generate(X_init, args.max_len + 1, temperature=curr_temp, top_k=top_k, do_sample=True).cpu().numpy()
+        del X_init  # TODO: is this necessary?
         
         pending_batches.append(batch_numpy)
         

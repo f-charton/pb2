@@ -8,6 +8,7 @@ import random
 import numpy as np
 from concurrent.futures import ProcessPoolExecutor
 from itertools import repeat, chain
+from collections import defaultdict
 
 from envs.environment import do_stats
 
@@ -30,48 +31,66 @@ def generate_and_score(args, classname):
         pars = classname._save_class_params()
         with ProcessPoolExecutor(max_workers=min(20,args.num_workers)) as executor:
             # map returns lists; stream them to avoid a giant materialization
-            for chunk in executor.map(classname._batch_generate_and_score,
-                                batch_counts, repeat(pars, len(batch_counts))):
+            for chunk in executor.map(classname._batch_generate_and_score, batch_counts, 
+                                    repeat(args.min_N, len(batch_counts)), repeat(args.max_N, len(batch_counts)), repeat(pars, len(batch_counts))):
                 if chunk:  # extend incrementally to manage memory
                     data.extend(chunk)
     else:
         for t in batch_counts:
-            d = classname._batch_generate_and_score(t)
+            d = classname._batch_generate_and_score(t, args.min_N, args.max_N)
             if d is not None:
                 data.extend(d)
     return data
+
+def _helper_select_best(n, data, scoring_method="top", pow_score=1.0, exp_score=1.0):
+    if len(data) <= n:
+        return data
+    if scoring_method == "top":
+        sorted_data = sorted(data, key=lambda x: x.score, reverse=True)
+        return sorted_data[:n]
+
+    scores = np.array([x.score for x in data])
+    
+    if scoring_method == "pow":
+        weights = np.power(np.maximum(scores, 0), pow_score)
+    elif scoring_method == "exp":
+        max_score = scores.max()
+        weights = np.exp(exp_score * (scores - max_score))
+            
+    probs = weights / weights.sum()
+    indices = np.random.choice(len(data), size=n, replace=False, p=probs)
+    return [data[i] for i in indices]
 
 def select_best(n, data, scoring_method="top", pow_score=1.0, exp_score=1.0):
     """
     With scoring_method="top", we select the top n data
     With scoring_method="pow", sample with probability ∝ score^pow_score
     With scoring_method="exp", sample with probability ∝ exp(exp_score * (score - max_score))
+    Maintains the proportion of N values from the original data.
     """
     if len(data) <= n:
         return data
-    # TODO: is this needed?
-    # to_shuff = data.copy()
 
-    if scoring_method == "top":
-        sorted_data = sorted(data, key=lambda x: x.score, reverse=True)
-        selected = sorted_data[:n]
+    # This part is to ensure that we keep the proportion of Ns the same as the original data
+    groups = defaultdict(list)
+    for item in data:
+        groups[item.N].append(item)
+    total = len(data)
+    n_values = list(groups.keys())
+    exact_allocations = {nv: n * len(groups[nv]) / total for nv in n_values}
+    allocations = {nv: int(exact_allocations[nv]) for nv in n_values}
 
-    else:
-        scores = np.array([x.score for x in data])
-        
-        if scoring_method == "pow":
-            weights = np.power(np.maximum(scores, 0), pow_score)
-        
-        elif scoring_method == "exp":
-            max_score = scores.max()
-            weights = np.exp(exp_score * (scores - max_score))
-                
-        probs = weights / weights.sum()
-        indices = np.random.choice(len(data), size=n, replace=False, p=probs)
-        selected = [data[i] for i in indices]
+    remaining = n - sum(allocations.values())
+    fractional_parts = sorted(n_values, key=lambda nv: exact_allocations[nv] - allocations[nv], reverse=True)
+    for i in range(remaining):
+        allocations[fractional_parts[i]] += 1
 
+    selected = []
+    for nv, group in groups.items():
+        selected.extend(_helper_select_best(allocations[nv], group, scoring_method, pow_score, exp_score))
     random.shuffle(selected)
     return selected
+
 
 def make_train_test(data,ntest):
     """
@@ -154,7 +173,6 @@ class CharDataset(Dataset):
     def __init__(self, encoded_data, max_len, stoi, token_embeddings):
         self.encoded_data = encoded_data
         self.max_len = max_len
-        self.bos_token_id = stoi["BOS"]
         self.eos_token_id = stoi["EOS"]
         self.pad_token_id = stoi["PAD"]
         self.token_embeddings = token_embeddings
@@ -167,11 +185,10 @@ class CharDataset(Dataset):
 
     def collate_fn(self, batch):
         x = np.full((len(batch), self.max_len + 2, self.token_embeddings), self.pad_token_id, dtype=np.int32)
-        x[:, 0, :] = self.bos_token_id
 
         for i, el in enumerate(batch):
-            x[i, 1 : el.shape[0] + 1, :] = el
-            x[i, el.shape[0] + 1, :] = self.eos_token_id
+            x[i, :el.shape[0], :] = el
+            x[i, el.shape[0], :] = self.eos_token_id
         valid_col = (x != self.pad_token_id).any(axis=(0, 2))
         last_col = np.nonzero(valid_col)[0][-1] + 1
         x = x[:, :last_col, :]

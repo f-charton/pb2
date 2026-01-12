@@ -42,12 +42,14 @@ class DataPoint(ABC):
         return
 
     @classmethod
-    def _batch_generate_and_score(cls,n, pars=None):
+    def _batch_generate_and_score(cls, batch_size, min_N, max_N, pars=None):
         out = []
         if pars is not None:
             cls._update_class_params(pars)
-        for _ in range(n):
-            d = cls(init=True)
+        for _ in range(batch_size):
+            # TODO: make sure we want to sample N uniformly
+            N = np.random.randint(min_N, max_N + 1)
+            d = cls(N=N, init=True)
             # print("HERE val",d.val)
             if d.score >=0:
                 out.append(d)
