@@ -5,6 +5,7 @@ from logging import getLogger
 import statistics
 from collections import Counter, defaultdict
 import numpy as np
+from copy import deepcopy
 
 logger=getLogger()
 
@@ -133,7 +134,7 @@ def do_stats(n_invalid, data):
 
     return result
 
-def _do_score(d, always_search:bool = False, redeem:bool = False, mutation:int = 0,pars=None):
+def _do_score(d, always_search:bool = False, redeem:bool = False, mutation:int = 0, n_unique_searches:int = 1,pars=None):
     invalid = 0
     if pars is not None:
         d._update_class_params(pars)
@@ -144,36 +145,47 @@ def _do_score(d, always_search:bool = False, redeem:bool = False, mutation:int =
         if redeem:
             d.redeem()
     if always_search:
-        d.mutate_and_search(mutation)
-    return (d,invalid)
+        # TODO: is this if-else really needed? This is a bit of a hack to reduce pressure on RAM, and not very readable.
+        res = []
+        number_unique_searches = np.random.randint(1, n_unique_searches+1)
+        for idx in range(number_unique_searches):
+            if idx < number_unique_searches - 1:
+                temp_d = deepcopy(d)
+            else:
+                temp_d = d
+        temp_d.mutate_and_search(mutation)
+        res.append(temp_d)
+    else:
+        res = [d]
+    return (res, number_unique_searches * invalid)
 
-def do_score(data, process_pool: bool = False, num_workers :int = 20, always_search:bool = False, redeem:bool = False, mutation:int = 0, executor=None):
+def do_score(data, process_pool: bool = False, num_workers :int = 20, always_search:bool = False, redeem:bool = False, mutation:int = 0, n_unique_searches:int = 1, executor=None):
     """
     Compute the score of a list of data.
     Can be parallelized with process_pool.
     Returns only valid items (score >= 0).
     """
     n_invalid = 0
+    processed_data = []
     if not process_pool:
         for d in data:
             # warning, change the original list
-            d,invalid = _do_score(d,always_search, redeem, mutation)
+            res, invalid = _do_score(d,always_search, redeem, mutation, n_unique_searches)
             n_invalid += invalid
-        processed_data = data
+            processed_data.extend(res)
     else:
         pars = data[0]._save_class_params()
         
         chunksize = max(1, len(data) // (num_workers * 32))
-        processed_data = []
         
         if executor is not None:
-            for d, invalid in executor.map(_do_score, data, repeat(always_search), repeat(redeem), repeat(mutation), repeat(pars), chunksize=chunksize):
-                processed_data.append(d)
+            for d, invalid in executor.map(_do_score, data, repeat(always_search), repeat(redeem), repeat(mutation), repeat(n_unique_searches), repeat(pars), chunksize=chunksize):
+                processed_data.extend(d)
                 n_invalid += invalid
         else:
             with ProcessPoolExecutor(max_workers=num_workers) as ex:
-                for d, invalid in ex.map(_do_score, data, repeat(always_search), repeat(redeem), repeat(mutation), repeat(pars), chunksize=chunksize):
-                    processed_data.append(d)
+                for d, invalid in ex.map(_do_score, data, repeat(always_search), repeat(redeem), repeat(mutation), repeat(n_unique_searches), repeat(pars), chunksize=chunksize):
+                    processed_data.extend(d)
                     n_invalid += invalid
 
     valid_data = [d for d in processed_data if d.score >= 0]
