@@ -42,6 +42,22 @@ def generate_and_score(args, classname):
                 data.extend(d)
     return data
 
+def generate_from_existing_data(args, classname, data):
+    res = []
+    pars = classname._save_class_params()
+    if args.process_pool:
+        BATCH = args.gen_batch_size
+        data_slices = [data[i:i + BATCH] for i in range(0, len(data), BATCH)]
+        with ProcessPoolExecutor(max_workers=min(20, args.num_workers)) as ex:
+            # map returns lists; stream them to avoid a giant materialization
+            for chunk in ex.map(classname._batch_generate_from_existing_data, data_slices, repeat(args.mutation, len(data_slices)), repeat(pars, len(data_slices))):
+                if chunk:  # extend incrementally to manage memory
+                    res.extend(chunk)
+    else:
+        res = classname._batch_generate_from_existing_data(data, args.mutation, pars)
+    return data
+
+
 def _helper_select_best(n, data, scoring_method="top", pow_score=1.0, exp_score=1.0):
     if len(data) <= n:
         return data
@@ -157,9 +173,13 @@ def load_initial_data(args, classname):
     train_data_path = os.path.join(args.dump_path, "train_data.pkl")
     test_data_path = os.path.join(args.dump_path, "test_data.pkl")
     if os.path.isfile(train_data_path):
-        logger.info("resuming from existing data")
         train_set = pickle.load(open(train_data_path, "rb"))
         test_set = pickle.load(open(test_data_path, "rb"))
+        if args.offline_curriculum:
+            data = train_set + test_set
+            data = generate_from_existing_data(args, classname, data)
+        else:
+            logger.info("resuming from existing data")
     else:
         data = generate_and_score(args,classname=classname)
         test_set = []

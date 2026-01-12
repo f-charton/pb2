@@ -54,6 +54,7 @@ def get_parser():
     parser.add_argument('--always_search', type=bool_flag, default="true", help='if True, use local search for all examples generated (if False, only for invalid examples)')
     parser.add_argument('--redeem', type=bool_flag, default="true", help='if True, save invalid examples)')
     parser.add_argument('--mutation', type=int, default=0, help="max number of mutations to apply to the data")
+    parser.add_argument('--offline_curriculum', type=bool_flag, default="false", help="if True, use offline curriculum learning")
     
     parser.add_argument('--new_proportion', type=float, default=0.0, help="proportion of new samples in test set")
 

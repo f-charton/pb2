@@ -25,6 +25,20 @@ class CycleDataPoint(DataPoint):
             self.calc_features()
             self.calc_score()
 
+    @classmethod
+    def _init_from_existing_data(cls, N, old_data, mutation):
+        assert N == old_data.N + 1
+        new_data = cls(N=N, init=False)
+        new_data.matrix = old_data.matrix[:old_data.N, :old_data.N]
+
+        # candidates are the edges (i, j) such that i < j and j == N
+        # these edges are the ones that are not in the old data
+        candidates_to_add = []
+        for i in range(old_data.N):
+            candidates_to_add.append((i, N))  # in this way i < N 
+        new_data.mutate_and_search(n=mutation, candidates_to_add=candidates_to_add)
+        return new_data
+
     def calc_score(self):
         if self.HARD and len(self.cycles) > 0:
             self.score = -1
@@ -38,7 +52,7 @@ class CycleDataPoint(DataPoint):
                 w.append(self.matrix[i, j])
         self.features = ",".join(map(str, w))
 
-    def _add_edges_greedily(self):
+    def _add_edges_greedily(self, candidates_to_add=None):
         np.random.seed(None)
         if self.TASK == "3cycles":
             adjmat_cycle = self.matrix @ self.matrix
@@ -51,6 +65,9 @@ class CycleDataPoint(DataPoint):
             for j in range(i + 1, self.N):
                 if self.matrix[i, j] == 0 and adjmat_cycle[i, j] == 0:
                     allowed_edges.append((i, j))
+
+        if candidates_to_add is not None:
+            allowed_edges = [edge for edge in allowed_edges if edge in candidates_to_add]
 
         while allowed_edges:
             i, j = allowed_edges[np.random.randint(len(allowed_edges))]
@@ -93,7 +110,7 @@ class CycleDataPoint(DataPoint):
     def _cycles_computation(self):
         return
     
-    def mutate_and_search(self, n):
+    def mutate_and_search(self, n, candidates_to_add=None):
         if n > 0:
             np.random.seed(None)
         for _ in range(np.random.randint(n+1)):
@@ -101,14 +118,14 @@ class CycleDataPoint(DataPoint):
             j = np.random.randint(i)
             self.matrix[i][j]=1 - self.matrix[i][j]
             self.matrix[j][i]=1 - self.matrix[j][i]
-        self.local_search()
+        self.local_search(candidates_to_add)
 
 
-    def local_search(self):
+    def local_search(self, candidates_to_add):
         # here I start from a dirty graph, so computing cycles is needed - cycles are needed on the _remove_edges_greedily()
         self._cycles_computation()
         self._remove_edges_greedily()
-        self._add_edges_greedily()
+        self._add_edges_greedily(candidates_to_add=candidates_to_add)
         # this is redundant because _remove_edges_greedily() removed all cycles, and _add_edges_greedily() cannot add any cycles
         self._cycles_computation()
         if self.MAKE_OBJECT_CANONICAL:

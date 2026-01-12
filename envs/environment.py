@@ -23,14 +23,14 @@ class DataPoint(ABC):
     def calc_features(self):
         pass
 
-    def local_search(self):
+    def local_search(self, candidates_to_add=None):
         return
 
     def redeem(self):
         return
     
-    def mutate_and_search(self, n) -> None:
-        self.local_search()
+    def mutate_and_search(self, n, candidates_to_add=None) -> None:
+        self.local_search(candidates_to_add)
 
     def generate_and_score(self):
         self.calc_features()
@@ -54,6 +54,17 @@ class DataPoint(ABC):
             if d.score >=0:
                 out.append(d)
         # print("HERE out",out)
+        return out
+
+    @classmethod
+    def _batch_generate_from_existing_data(cls, data, mutation, pars=None):
+        out = []
+        if pars is not None:
+            cls._update_class_params(pars)
+        for old_data in data:
+            new_data = cls._init_from_existing_data(N=old_data.N+1, old_data=old_data, mutation=mutation)
+            if new_data.score>=0:
+                out.append(new_data)
         return out
 
 

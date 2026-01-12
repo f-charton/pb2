@@ -208,6 +208,19 @@ class NoIsoscelesDataPoint(DataPoint):
             self.calc_features()
             self.calc_score()
 
+    @classmethod
+    def _init_from_existing_data(cls, N, old_data, mutation):
+        assert N == old_data.N + 1
+        new_data = cls(N=N, init=False)
+        new_data.matrix = old_data.matrix[:old_data.N, :old_data.N]
+
+        # candidates_to_add are the points in [N+1]^2 \ [N]^2
+        # these points are the ones that are not in the old data
+        candidates_to_add = np.arange(new_data.N * new_data.N, dtype=np.int32)
+        candidates_to_add = candidates_to_add[~np.isin(candidates_to_add, np.arange(old_data.N * old_data.N, dtype=np.int32))]
+        new_data.mutate_and_search(n=mutation, candidates_to_add=candidates_to_add)
+        return new_data
+
     def calc_score(self):
         if self.HARD and self.isosceles.size > 0:
             self.score = -1
@@ -221,11 +234,12 @@ class NoIsoscelesDataPoint(DataPoint):
                 w.append(self.matrix[i, j])
         self.features = ",".join(map(str, w))
 
-    def _add_points_greedily(self):
+    def _add_points_greedily(self, candidates_to_add=None):
         np.random.seed(None)
-        candidates = np.arange(self.N * self.N, dtype=np.int32)
-        np.random.shuffle(candidates)
-        _greedy_add_jittered(self.matrix, candidates, self.N)
+        if candidates_to_add is None:
+            candidates_to_add = np.arange(self.N * self.N, dtype=np.int32)
+        np.random.shuffle(candidates_to_add)
+        _greedy_add_jittered(self.matrix, candidates_to_add, self.N)
 
     def _remove_points_greedily(self):
         if self.isosceles.size > 0:
@@ -241,19 +255,19 @@ class NoIsoscelesDataPoint(DataPoint):
         points_arr = np.ascontiguousarray(points, dtype=np.int32)
         self.isosceles = _greedy_fill_jittered(points_arr, len(points_arr))
 
-    def mutate_and_search(self, n):
+    def mutate_and_search(self, n, candidates_to_add=None):
         if n > 0:
             np.random.seed(None)
         for _ in range(np.random.randint(n+1)):
             i = np.random.randint(self.N)
             j = np.random.randint(self.N)
             self.matrix[i, j] = 1 - self.matrix[i, j]
-        self.local_search()
+        self.local_search(candidates_to_add)
 
-    def local_search(self):
+    def local_search(self, candidates_to_add):
         self._isosceles_computation()
         self._remove_points_greedily()
-        self._add_points_greedily()
+        self._add_points_greedily(candidates_to_add)
         self._isosceles_computation()
         self.calc_score()
         if self.MAKE_OBJECT_CANONICAL:

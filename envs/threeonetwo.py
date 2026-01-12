@@ -181,6 +181,19 @@ class ThreeOneTwoDataPoint(DataPoint):
             self.calc_score()
             self.calc_features()
 
+    @classmethod
+    def _init_from_existing_data(cls, N, old_data, mutation):
+        assert N == old_data.N + 1
+        new_data = cls(N=N, init=False)
+        new_data.matrix = old_data.matrix[:old_data.N, :old_data.N]
+
+        # candidates_to_add are the points in [N+1]^2 \ [N]^2
+        # these points are the ones that are not in the old data
+        candidates_to_add = np.arange(new_data.N * new_data.N, dtype=np.int32)
+        candidates_to_add = candidates_to_add[~np.isin(candidates_to_add, np.arange(old_data.N * old_data.N, dtype=np.int32))]
+        new_data.mutate_and_search(n=mutation, candidates_to_add=candidates_to_add)
+        return new_data
+
     def calc_score(self):
         self.score = _ryser_permanent(self.matrix, self.N)
 
@@ -191,11 +204,12 @@ class ThreeOneTwoDataPoint(DataPoint):
                 w.append(self.matrix[i, j])
         self.features = ",".join(map(str, w))
 
-    def _add_edges_greedily(self):
+    def _add_edges_greedily(self, candidates_to_add=None):
         np.random.seed(None)
-        candidates = np.arange(self.N * self.N, dtype=np.int32)
-        np.random.shuffle(candidates)
-        _greedy_fill_jittered(self.matrix, candidates, self.N)
+        if candidates_to_add is None:
+            candidates_to_add = np.arange(self.N * self.N, dtype=np.int32)
+        np.random.shuffle(candidates_to_add)
+        _greedy_fill_jittered(self.matrix, candidates_to_add, self.N)
 
     def _remove_edges_greedily(self):
         if len(self.cycles) > 0:
@@ -207,10 +221,10 @@ class ThreeOneTwoDataPoint(DataPoint):
         points_arr = np.ascontiguousarray(points, dtype=np.int32)
         self.cycles = _cycles_computation_jittered(points_arr, len(points_arr))
 
-    def local_search(self):
+    def local_search(self, candidates_to_add=None):
         self._cycles_computation()
         self._remove_edges_greedily()
-        self._add_edges_greedily()
+        self._add_edges_greedily(candidates_to_add=candidates_to_add)
         self._cycles_computation()
         self.calc_score()
         self.calc_features()
