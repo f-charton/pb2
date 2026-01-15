@@ -148,6 +148,8 @@ def do_stats(n_invalid, data):
 
 def _do_score(d, always_search:bool = False, redeem:bool = False, offline_curriculum:bool = False, max_N:int = 0, mutation:int = 0, n_unique_searches:int = 1,pars=None):
     invalid = 0
+    number_unique_searches = 1
+    number_offline_unique_searches = 0
     if pars is not None:
         d._update_class_params(pars)
     d.calc_features()
