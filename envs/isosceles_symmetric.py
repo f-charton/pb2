@@ -1,4 +1,3 @@
-from math import e
 from envs.environment import DataPoint, BaseEnvironment
 from .utils import canonical_form_2d, random_symmetry_2d
 import numpy as np
