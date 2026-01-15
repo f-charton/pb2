@@ -61,7 +61,7 @@ image = (
     .pip_install("psutil")
     .env({"PYTHONPATH": MOUNT_AT})
     .workdir(MOUNT_AT)
-    .add_local_dir(local_path=".", remote_path="/workspace", ignore = ["checkpoint/**"])
+    .add_local_dir(local_path=".", remote_path="/workspace", ignore = ["checkpoint/**", "downloads/**"])
 )
 
 

@@ -1,3 +1,4 @@
+from math import e
 from envs.environment import DataPoint, BaseEnvironment
 from .utils import canonical_form_2d, random_symmetry_2d
 import numpy as np
@@ -118,7 +119,7 @@ def _greedy_add_symmetric(matrix, matrix_real, candidates, N):
     
     for enc in candidates:
         x, y = enc // N, enc % N
-        if matrix[x, y] == 1 or x == y:
+        if matrix[x, y] == 1:
             continue
         
         sym_points = [
@@ -128,15 +129,20 @@ def _greedy_add_symmetric(matrix, matrix_real, candidates, N):
             (2 * N - 1 - x, 2 * N - 1 - y)
         ]
         
-        # using the symmetry argument here
-        if not _has_isosceles_conflict(points_arr, n_points, x, y):
+        # Temporarily add the 3 symmetric points to points_arr 
+        # no need to remove if it doesn't work because it will rewrite from the next point
+        for i in range(3):
+            sx, sy = sym_points[i + 1]
+            points_arr[n_points + i, 0] = sx
+            points_arr[n_points + i, 1] = sy
+        
+        if not _has_isosceles_conflict(points_arr, n_points + 3, x, y):
             matrix[x, y] = 1
             for sx, sy in sym_points:
-                if matrix_real[sx, sy] == 0:
-                    matrix_real[sx, sy] = 1
-                    points_arr[n_points, 0] = sx
-                    points_arr[n_points, 1] = sy
-                    n_points += 1
+                matrix_real[sx, sy] = 1
+            points_arr[n_points + 3, 0] = x
+            points_arr[n_points + 3, 1] = y
+            n_points += 4
 
 
 @njit(cache=True)
