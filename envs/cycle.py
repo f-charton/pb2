@@ -25,6 +25,15 @@ class CycleDataPoint(DataPoint):
             self.calc_features()
             self.calc_score()
 
+    @classmethod
+    def _init_from_existing_data(cls, N, old_data, mutation):
+        assert N == old_data.N + 1
+        new_data = cls(N=N, init=False)
+        new_data.matrix[:old_data.N, :old_data.N] = old_data.matrix
+
+        new_data.mutate_and_search(n=mutation)
+        return new_data
+
     def calc_score(self):
         if self.HARD and len(self.cycles) > 0:
             self.score = -1
@@ -251,7 +260,7 @@ class CycleEnvironment(BaseEnvironment):
         parser.add_argument('--nosep', type=bool_flag, default="true", help='separator (for adjacency and double edge)')
         parser.add_argument('--pow2base', type=int, default=1, help='Number of adjacency entries to code together')
         parser.add_argument('--balanced_search', type=bool_flag, default="false", help="when removing edges on cycles, do not be too greedy")
-        
+
 
 class SquareEnvironment(CycleEnvironment):
     data_class = SquareDataPoint

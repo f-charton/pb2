@@ -208,6 +208,15 @@ class NoIsoscelesDataPoint(DataPoint):
             self.calc_features()
             self.calc_score()
 
+    @classmethod
+    def _init_from_existing_data(cls, N, old_data, mutation):
+        assert N == old_data.N + 1
+        new_data = cls(N=N, init=False)
+        new_data.matrix[:old_data.N, :old_data.N] = old_data.matrix
+
+        new_data.mutate_and_search(n=mutation)
+        return new_data
+
     def calc_score(self):
         if self.HARD and self.isosceles.size > 0:
             self.score = -1

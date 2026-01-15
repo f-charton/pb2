@@ -54,6 +54,7 @@ def get_parser():
     parser.add_argument('--always_search', type=bool_flag, default="true", help='if True, use local search for all examples generated (if False, only for invalid examples)')
     parser.add_argument('--redeem', type=bool_flag, default="true", help='if True, save invalid examples)')
     parser.add_argument('--mutation', type=int, default=0, help="max number of mutations to apply to the data")
+    parser.add_argument('--offline_curriculum', type=bool_flag, default="false", help='if True, use data from N-1 to generate data for N. Applicable only if min_N < max_N')
     parser.add_argument('--n_unique_searches', type=int, default=1, help="how many distinct searches to perform from a given sample")
     
     parser.add_argument('--new_proportion', type=float, default=0.0, help="proportion of new samples in test set")
@@ -227,12 +228,7 @@ def sample_and_score(model, args, stoi, itos, env, temp, tempspan=0):
                 
                 valid_data, n_invalid, processed_data = do_score(
                     detok_results, 
-                    process_pool=args.process_pool,
-                    num_workers=args.num_workers,
-                    always_search=args.always_search,
-                    redeem=args.redeem,
-                    mutation=args.mutation,
-                    n_unique_searches=args.n_unique_searches,
+                    args=args,
                     executor=executor
                 )
                 

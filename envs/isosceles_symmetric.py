@@ -118,7 +118,7 @@ def _greedy_add_symmetric(matrix, matrix_real, candidates, N):
     
     for enc in candidates:
         x, y = enc // N, enc % N
-        if matrix[x, y] == 1:
+        if matrix[x, y] == 1 or x == y:
             continue
         
         sym_points = [
@@ -128,13 +128,8 @@ def _greedy_add_symmetric(matrix, matrix_real, candidates, N):
             (2 * N - 1 - x, 2 * N - 1 - y)
         ]
         
-        has_conflict = False
-        for sx, sy in sym_points:
-            if _has_isosceles_conflict(points_arr, n_points, sx, sy):
-                has_conflict = True
-                break
-        
-        if not has_conflict:
+        # using the symmetry argument here
+        if not _has_isosceles_conflict(points_arr, n_points, x, y):
             matrix[x, y] = 1
             for sx, sy in sym_points:
                 if matrix_real[sx, sy] == 0:
@@ -259,6 +254,16 @@ class NoIsoscelesSymmetricDataPoint(DataPoint):
             self.calc_features()
             self.calc_score()
 
+    @classmethod
+    def _init_from_existing_data(cls, N, old_data, mutation):
+        assert N == old_data.N + 1
+        new_data = cls(N=N, init=False)
+        # be careful here: we are adding more points on the border, not on the interior 
+        new_data.matrix[1:old_data.N+1, 1:old_data.N+1] = old_data.matrix
+
+        new_data.mutate_and_search(n=mutation)
+        return new_data
+        
     def _sync_matrix_real(self):
         self.matrix_real.fill(0)
         _expand_to_real_matrix(self.matrix, self.matrix_real, self.N)
@@ -338,7 +343,6 @@ class NoIsoscelesSymmetricEnvironment(BaseEnvironment):
         self.data_class.HARD = params.hard
         self.data_class.MAKE_OBJECT_CANONICAL = params.make_object_canonical
         self.data_class.BALANCED = params.balanced_search
-        
         encoding_augmentation = random_symmetry_2d if params.augment_data_representation else None
         if params.encoding_tokens == "single_integer":
             self.tokenizer = SparseTokenizer(self.data_class, params.min_N, params.max_N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, encoding_augmentation=encoding_augmentation)
