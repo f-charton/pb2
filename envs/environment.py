@@ -164,12 +164,12 @@ def _do_score(d, always_search:bool = False, redeem:bool = False, offline_curric
             temp_d.mutate_and_search(mutation)
             res.append(temp_d)
         if offline_curriculum and d.N < max_N:
-            number_unique_searches = np.random.randint(1, n_unique_searches+1)
-            for _ in range(number_unique_searches):
+            number_offline_unique_searches = np.random.randint(1, n_unique_searches+1)
+            for _ in range(number_offline_unique_searches):
                 res.append(d._init_from_existing_data(N=d.N+1, old_data=d, mutation=mutation))
     else:
         res = [d]
-    return (res, number_unique_searches * invalid)
+    return (res, (number_unique_searches + number_offline_unique_searches) * invalid)
 
 def do_score(data, args, executor=None):
     """
