@@ -42,6 +42,18 @@ class DataPoint(ABC):
     def _update_class_params(self,pars):
         return
 
+    # TODO: reintroduce this
+    # @classmethod
+    # def _batch_generate_from_existing_data(cls, data, mutation, pars=None):
+    #     out = []
+    #     if pars is not None:
+    #         cls._update_class_params(pars)
+    #     for old_data in data:
+    #         new_data = cls._init_from_existing_data(N=old_data.N+1, old_data=old_data, mutation=mutation)
+    #         if new_data.score>=0:
+    #             out.append(new_data)
+    #     return out
+        
     @classmethod
     def _batch_generate_and_score(cls, batch_size, min_N, max_N, pars=None):
         out = []
@@ -134,7 +146,7 @@ def do_stats(n_invalid, data):
 
     return result
 
-def _do_score(d, always_search:bool = False, redeem:bool = False, mutation:int = 0, n_unique_searches:int = 1,pars=None):
+def _do_score(d, always_search:bool = False, redeem:bool = False, offline_curriculum:bool = False, max_N:int = 0, mutation:int = 0, n_unique_searches:int = 1,pars=None):
     invalid = 0
     if pars is not None:
         d._update_class_params(pars)
@@ -145,21 +157,21 @@ def _do_score(d, always_search:bool = False, redeem:bool = False, mutation:int =
         if redeem:
             d.redeem()
     if always_search:
-        # TODO: is this if-else really needed? This is a bit of a hack to reduce pressure on RAM, and not very readable.
         res = []
         number_unique_searches = np.random.randint(1, n_unique_searches+1)
-        for idx in range(number_unique_searches):
-            if idx < number_unique_searches - 1:
-                temp_d = deepcopy(d)
-            else:
-                temp_d = d
-        temp_d.mutate_and_search(mutation)
-        res.append(temp_d)
+        for _ in range(number_unique_searches):
+            temp_d = deepcopy(d)
+            temp_d.mutate_and_search(mutation)
+            res.append(temp_d)
+        if offline_curriculum and d.N < max_N:
+            number_unique_searches = np.random.randint(1, n_unique_searches+1)
+            for _ in range(number_unique_searches):
+                res.append(d._init_from_existing_data(N=d.N+1, old_data=d, mutation=mutation))
     else:
         res = [d]
     return (res, number_unique_searches * invalid)
 
-def do_score(data, process_pool: bool = False, num_workers :int = 20, always_search:bool = False, redeem:bool = False, mutation:int = 0, n_unique_searches:int = 1, executor=None):
+def do_score(data, args, executor=None):
     """
     Compute the score of a list of data.
     Can be parallelized with process_pool.
@@ -167,24 +179,24 @@ def do_score(data, process_pool: bool = False, num_workers :int = 20, always_sea
     """
     n_invalid = 0
     processed_data = []
-    if not process_pool:
+    if not args.process_pool:
         for d in data:
             # warning, change the original list
-            res, invalid = _do_score(d,always_search, redeem, mutation, n_unique_searches)
+            res, invalid = _do_score(d, args.always_search, args.redeem, args.offline_curriculum, args.max_N, args.mutation, args.n_unique_searches)
             n_invalid += invalid
             processed_data.extend(res)
     else:
         pars = data[0]._save_class_params()
         
-        chunksize = max(1, len(data) // (num_workers * 32))
+        chunksize = max(1, len(data) // (args.num_workers * 32))
         
         if executor is not None:
-            for d, invalid in executor.map(_do_score, data, repeat(always_search), repeat(redeem), repeat(mutation), repeat(n_unique_searches), repeat(pars), chunksize=chunksize):
+            for d, invalid in executor.map(_do_score, data, repeat(args.always_search), repeat(args.redeem), repeat(args.offline_curriculum), repeat(args.max_N), repeat(args.mutation), repeat(args.n_unique_searches), repeat(pars), chunksize=chunksize):
                 processed_data.extend(d)
                 n_invalid += invalid
         else:
-            with ProcessPoolExecutor(max_workers=num_workers) as ex:
-                for d, invalid in ex.map(_do_score, data, repeat(always_search), repeat(redeem), repeat(mutation), repeat(n_unique_searches), repeat(pars), chunksize=chunksize):
+            with ProcessPoolExecutor(max_workers=args.num_workers) as ex:
+                for d, invalid in ex.map(_do_score, data, repeat(args.always_search), repeat(args.redeem), repeat(args.offline_curriculum), repeat(args.max_N), repeat(args.mutation), repeat(args.n_unique_searches), repeat(pars), chunksize=chunksize):
                     processed_data.extend(d)
                     n_invalid += invalid
 
