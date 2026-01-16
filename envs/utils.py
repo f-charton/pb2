@@ -57,6 +57,28 @@ def random_symmetry_2d(matrix):
 
 
 ############################################################
+# Utils for half-square (isosceles with symmetry)
+############################################################
+def canonical_form_2d_symmetric(matrix):
+    transposed = matrix.T
+    
+    flat_original = matrix.flatten().tolist()
+    flat_transposed = transposed.flatten().tolist()
+    
+    if flat_original <= flat_transposed:
+        return matrix.copy()
+    else:
+        return transposed.copy()
+
+
+def random_symmetry_2d_symmetric(matrix):
+    if random.randint(0, 1):
+        return matrix.T.copy()
+    else:
+        return matrix.copy()
+
+
+############################################################
 # Utils for cube
 ############################################################
 def canonical_form_3d(matrix):

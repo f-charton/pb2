@@ -1,5 +1,5 @@
 from envs.environment import DataPoint, BaseEnvironment
-from .utils import canonical_form_2d, random_symmetry_2d
+from .utils import canonical_form_2d_symmetric, random_symmetry_2d_symmetric
 import numpy as np
 from numba import njit
 from .tokenizers import SparseTokenizer, DenseTokenizer
@@ -254,7 +254,7 @@ class NoIsoscelesSymmetricDataPoint(DataPoint):
         if init:
             self._add_points_greedily()
             if self.MAKE_OBJECT_CANONICAL:
-                self.matrix = canonical_form_2d(self.matrix)
+                self.matrix = canonical_form_2d_symmetric(self.matrix)
                 self._sync_matrix_real()
             self.calc_features()
             self.calc_score()
@@ -323,7 +323,7 @@ class NoIsoscelesSymmetricDataPoint(DataPoint):
         self._isosceles_computation()
         self.calc_score()
         if self.MAKE_OBJECT_CANONICAL:
-            self.matrix = canonical_form_2d(self.matrix)
+            self.matrix = canonical_form_2d_symmetric(self.matrix)
             self._sync_matrix_real()
         self.calc_features()
 
@@ -348,7 +348,7 @@ class NoIsoscelesSymmetricEnvironment(BaseEnvironment):
         self.data_class.HARD = params.hard
         self.data_class.MAKE_OBJECT_CANONICAL = params.make_object_canonical
         self.data_class.BALANCED = params.balanced_search
-        encoding_augmentation = random_symmetry_2d if params.augment_data_representation else None
+        encoding_augmentation = random_symmetry_2d_symmetric if params.augment_data_representation else None
         if params.encoding_tokens == "single_integer":
             self.tokenizer = SparseTokenizer(self.data_class, params.min_N, params.max_N, self.k, self.is_adj_matrix_symmetric, self.SPECIAL_SYMBOLS, token_embeddings=1, encoding=params.encoding_tokens, shuffle_elements=params.shuffle_elements, encoding_augmentation=encoding_augmentation)
         elif params.encoding_tokens == "vector_k_integers":
