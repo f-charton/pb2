@@ -5,6 +5,7 @@ from .threeonetwo import ThreeOneTwoEnvironment
 from .isosceles import NoIsoscelesEnvironment
 from .isosceles_symmetric import NoIsoscelesSymmetricEnvironment
 from .sphere import SphereEnvironment
+from .sumdiff import SumDiffEnvironment
 
 ENVS = {
     'threerank': ThreeRankEnvironment,
@@ -15,6 +16,7 @@ ENVS = {
     'isosceles': NoIsoscelesEnvironment,
     'isosceles_symmetric': NoIsoscelesSymmetricEnvironment,
     'sphere': SphereEnvironment,
+    'sumdiff': SumDiffEnvironment,
 }
 
 

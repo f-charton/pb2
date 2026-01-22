@@ -6,6 +6,30 @@ from .tokenizers import SparseTokenizer, DenseTokenizer
 from utils import bool_flag
 
 
+# best_results = {
+#     4: 6,
+#     5: 7,
+#     6: 9,
+#     7: 10,
+#     8: 13,
+#     9: 16,
+#     10: 18,
+#     11: 18,
+#     12: 20,
+#     13: 22,
+#     14: 23,
+#     15: 25,
+#     16: 28,
+#     17: 30,
+#     18: 32,
+#     21: 36,
+#     23: 40,
+#     25: 44,
+#     27: 48,
+#     32: 56,
+# }
+
+
 @njit(cache=True)
 def _greedy_fill_jittered(points_arr, n_points):
     if n_points < 3:
