@@ -1,4 +1,6 @@
 from concurrent.futures import ProcessPoolExecutor
+
+import psutil
 from slurm import init_signal_handler, init_distributed_mode
 from utils import bool_flag, initialize_exp
 from logging import getLogger
@@ -254,7 +256,7 @@ def sample_and_score(model, args, stoi, itos, env, temp, tempspan=0):
 
 
     for i in range(todo):
-        if tempspan > 0: 
+        if tempspan > 0:
             curr_temp = temp+ 0.1*np.random.randint(tempspan+1)
         else:
              curr_temp = temp
@@ -452,6 +454,11 @@ if __name__ == '__main__':
 
         #Possible to add another generation method here and mix it before taking the best
         train_set, test_set, inc_temp = update_datasets(args, new_data, train_set, test_set, train_data_path, test_data_path)
+
+        # #debug
+        # logger.info(f"HERE do_stats after updating datasets")
+        # metrics_temp = do_stats(-1,data=train_set)
+
         log_resources(f"Epoch {epoch} AFTER_UPDATE_DATASETS")
 
         del new_data  # TODO: is this necessary?

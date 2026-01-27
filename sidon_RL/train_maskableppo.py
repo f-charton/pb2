@@ -13,18 +13,27 @@ from __future__ import annotations
 import argparse
 import os
 from datetime import datetime
+import re
+from typing import List, Optional
 
-from sidon_RL.sidon_gym_env import SidonAddEnv
-import random
+from sidon_RL import build_env
+from utils import bool_flag
+
+
+
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--n", type=int, default=500, help="Maximum element n (actions 0..n).")
+    parser.add_argument("--N", type=int, default=500, help="Maximum element n (actions 0..n).")
     parser.add_argument("--timesteps", type=int, default=300_000)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--no-diffs-obs", action="store_true", help="Use membership-only observation.")
     parser.add_argument("--no-stop", action="store_true", help="Remove STOP action (not recommended).")
     parser.add_argument("--logdir", type=str, default="runs_sidon")
+    parser.add_argument("--start_set", type=str, default="")
+    parser.add_argument("--with_stop", type=bool_flag, default="true")
+    parser.add_argument("--invalid_action_terminates", type=bool_flag, default="false")
+    parser.add_argument("--obs_include_diffs", type=bool_flag, default="false")
     parser.add_argument(
         "--torch-validate-distributions",
         action="store_true",
@@ -34,6 +43,7 @@ def main():
         ),
     )
     parser.add_argument("--eval-episodes", type=int, default=100)
+    parser.add_argument("--env_name", type=str, default="sidon")
     parser.add_argument("--start-k-max", type=int, default=0,
                          help="If >0, sample random Sidon start sets up to this size for evaluation.")
 
@@ -55,24 +65,35 @@ def main():
         except Exception:
             pass
 
+    def _parse_start_set(s: str) -> Optional[List[int]]:
+        """Parse --start_set like '0,1,4' or '0 1 4'. Empty string -> None."""
+        s = (s or "").strip()
+        if not s:
+            return None
+        parts = [p for p in re.split(r"[\s,]+", s) if p]
+        return [int(p) for p in parts]
 
-    obs_include_diffs = not args.no_diffs_obs
-    with_stop = not args.no_stop
 
-    env = SidonAddEnv(
-        N=args.n,
-        with_stop=with_stop,
-        obs_include_diffs=obs_include_diffs,
-        prefer_sidon_datapoint=True,
-    )
+    if args.no_stop:
+        args.with_stop = False
+    if args.no_diffs_obs:
+        args.obs_include_diffs = False
+    args.start_set = _parse_start_set(args.start_set)
+
+    env = build_env(args)
+    #restart from here
+    # env = SidonAddEnv(
+    #     N=args.n,
+    #     with_stop=with_stop,
+    # )
 
     # Import here to keep the module importable without RL deps
     from sb3_contrib import MaskablePPO
     # from sb3_contrib.common.callbacks import BaseCallback
 
-    policy = "MultiInputPolicy" if obs_include_diffs else "MlpPolicy"
+    policy = "MultiInputPolicy" if args.obs_include_diffs else "MlpPolicy"
 
-    run_name = f"sidon_n{args.n}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    run_name = f"{args.env_name}_n{args.N}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     outdir = os.path.join(args.logdir, run_name)
     os.makedirs(outdir, exist_ok=True)
 

@@ -13,13 +13,15 @@ Design goals:
 """
 
 from __future__ import annotations
-
+from sidon_RL.rl_state import RLDataclass
 from dataclasses import dataclass
 from typing import Any, List, Optional, Set, Tuple
 from envs.sidon import SidonSetDataPoint
 
 import bisect
 import numpy as np
+
+from sidon_RL.sidon_gym_env import DataClassGymEnv
 
 _SIDON_CLASS_PARAMS_INITIALIZED = False
 
@@ -34,7 +36,6 @@ def _ensure_sidon_class_params(N: int) -> None:
     if _SIDON_CLASS_PARAMS_INITIALIZED:
         return
 
-    # Prefer the official helper if it exists in your sidon.py
     if hasattr(SidonSetDataPoint, "_update_class_params"):
         pars = (
             int(N),   # N
@@ -62,7 +63,8 @@ def _ensure_sidon_class_params(N: int) -> None:
     _SIDON_CLASS_PARAMS_INITIALIZED = True
 
 def is_sidon(vals: List[int]) -> bool:
-    """Check Sidon property: all positive pairwise differences are distinct."""
+    """Helper to check sidon property: all positive pairwise differences are distinct."""
+    #Sidon specific out of main file
     v = sorted(vals)
     diffs: Set[int] = set()
     for i, a in enumerate(v):
@@ -74,84 +76,8 @@ def is_sidon(vals: List[int]) -> bool:
     return True
 
 
-def _slow_mask(N: int, vals: List[int], with_stop: bool) -> np.ndarray:
-    """
-    Slow O(N*k) recomputation of the legal-add mask (plus optional STOP).
-    Used for correctness checks / debugging.
-    """
-    vset = set(vals)
-    # used diffs
-    used = [False] * (N + 1)
-    v = sorted(vals)
-    for i, a in enumerate(v):
-        for b in v[i + 1 :]:
-            used[b - a] = True
-
-    mask = np.zeros((N + 2) if with_stop else (N + 1), dtype=bool)
-    for x in range(N + 1):
-        if x in vset:
-            continue
-        local = set()
-        ok = True
-        for a in v:
-            d = abs(x - a)
-            if d == 0 or d in local or used[d]:
-                ok = False
-                break
-            local.add(d)
-        mask[x] = ok
-
-    if with_stop:
-        mask[N + 1] = True
-    return mask
-
-
-class _InternalSidonDP:
-    """
-    Minimal drop-in state resembling the parts of SidonSetDataPoint we need:
-    - val: sorted list of elements
-    - diffs_count: multiplicity counts for positive differences
-    - _build_diffs(), _add_element()
-    """
-
-    def __init__(self, N: int, val: Optional[List[int]] = None):
-        self.N = int(N)
-        self.val = sorted(set(val or []))
-        self.diffs_count = [0] * (self.N + 1)
-        self._build_diffs()
-
-    def _build_diffs(self) -> None:
-        self.diffs_count = [0] * (self.N + 1)
-        v = self.val
-        for i, a in enumerate(v):
-            for b in v[i + 1 :]:
-                self.diffs_count[b - a] += 1
-
-    def _add_element(self, x: int) -> int:
-        v = self.val
-        pos = bisect.bisect_left(v, x)
-        delta = 0
-        for a in v[:pos]:
-            d = x - a
-            old = self.diffs_count[d]
-            if old >= 1:
-                delta += 1
-            self.diffs_count[d] = old + 1
-        for b in v[pos:]:
-            d = b - x
-            old = self.diffs_count[d]
-            if old >= 1:
-                delta += 1
-            self.diffs_count[d] = old + 1
-        bisect.insort(v, x)
-        return delta
-
-
-
-
-
 @dataclass
-class SidonAddOnlyState:
+class SidonAddOnlyState(RLDataclass):
     """
     Add-only Sidon-set search state with cached + incrementally-updated action mask.
 
@@ -162,62 +88,80 @@ class SidonAddOnlyState:
 
     N: int
     with_stop: bool = True
-    obs_include_diffs: bool = True
-    prefer_sidon_datapoint: bool = True
+    obs_include_diffs: bool = False
 
-    def __post_init__(self):
-        self.N = int(self.N)
-        self._stop_action = self.N + 1
-        self._dp = None
-        self._use_dp = False
-        self.reset()  # default start
 
-    @property
-    def stop_action(self) -> int:
-        return self._stop_action
+    def _slow_mask(self,N: int, vals: List[int], with_stop: bool) -> np.ndarray:
+        """
+        Slow O(N*k) recomputation of the legal-add mask (plus optional STOP).
+        Used for correctness checks / debugging.
+        """
+        #Sidon specific
+        vset = set(vals)
+        # used diffs
+        used = [False] * (N + 1)
+        v = sorted(vals)
+        for i, a in enumerate(v):
+            for b in v[i + 1 :]:
+                used[b - a] = True
 
-    @property
-    def action_space_n(self) -> int:
-        return (self.N + 2) if self.with_stop else (self.N + 1)
+        mask = np.zeros((N + 2) if with_stop else (N + 1), dtype=bool)
+        for x in range(N + 1):
+            if x in vset:
+                continue
+            local = set()
+            ok = True
+            for a in v:
+                d = abs(x - a)
+                if d == 0 or d in local or used[d]:
+                    ok = False
+                    break
+                local.add(d)
+            mask[x] = ok
 
-    @property
-    def vals(self) -> List[int]:
-        return list(self._vals)
+        if with_stop:
+            mask[N + 1] = True
+        return mask
+
+    def observation(self) -> object:
+        present = np.zeros(self.N + 1, dtype=np.int8)
+        present[self._vals] = 1
+        if not self.obs_include_diffs:
+            return present
+        diffs_used = np.asarray(self._used, dtype=np.int8)  # length N+1
+        return {"present": present, "diffs_used": diffs_used}
 
     def reset(self, start_set: Optional[List[int]] = None) -> None:
         """
         Initialize state and compute initial mask in O(N*k).
         """
-        #Sidon specific
         start = [] if start_set is None else list(start_set)
         start = sorted(set(int(x) for x in start if 0 <= int(x) <= self.N))
 
         if SidonSetDataPoint is not None:
             # Create a minimal SidonSetDataPoint instance without triggering its expensive init logic.
             # We avoid calling init=True to prevent local_search / other side effects.
-            try:
-                SidonSetDataPoint.init_k = np.random.randint(max(1, int(np.sqrt(self.N))))
-                _ensure_sidon_class_params(self.N)
-                if len(start) == 0 or start == [0]:
-                    dp = SidonSetDataPoint(init=True)  # type: ignore
-                    dp.N = self.N
-                    # print("HERE val", dp.val)
-                else:
-                    dp = SidonSetDataPoint(val = [], init=False)  # type: ignore
-                    dp.val = list(start)
-                    dp._build_diffs()
-                self._dp = dp
-                self._use_dp = True
-            except Exception as e:
-                # Fallback if the surrounding infrastructure is required.
-                print("HERE",e)
-                self._dp = _InternalSidonDP(self.N, start)
-                self._use_dp = False
+            SidonSetDataPoint.init_k = np.random.randint(max(1, int(np.sqrt(self.N))))
+            _ensure_sidon_class_params(self.N)
+            if len(start) == 0 or start == [0]:
+                dp = SidonSetDataPoint(N=self.N,init=True)  # type: ignore
+            else:
+                dp = SidonSetDataPoint(val = [],N=self.N, init=False)  # type: ignore
+                dp.val = list(start)
+                dp._build_diffs()
+            self._dp = dp
+            self._use_dp = True
+            # except Exception as e:
+            #     # Fallback if the surrounding infrastructure is required.
+            #     print("HERE",e)
+                # self._dp = _InternalSidonDP(self.N, start)
+                # self._use_dp = False
         else:
             if len(start) == 0:
                 start = [0]
-            self._dp = _InternalSidonDP(self.N, start)
-            self._use_dp = False
+            raise RuntimeError("dataclass SidonSetDataPoint not found")
+            # self._dp = _InternalSidonDP(self.N, start)
+            # self._use_dp = False
 
         self._vals = self._dp.val  # reference (sorted list)
         self._valset: Set[int] = set(self._vals)
@@ -235,48 +179,7 @@ class SidonAddOnlyState:
                 self._diff_set.add(d)
 
         # Cached mask
-        self._mask = _slow_mask(self.N, self._vals, self.with_stop)
-
-    def observation(self) -> object:
-        """
-        Observation:
-          - present: (N+1,) 0/1 vector
-          - diffs_used: (N+1,) 0/1 vector (optional)
-        """
-        present = np.zeros(self.N + 1, dtype=np.int8)
-        present[self._vals] = 1
-        if not self.obs_include_diffs:
-            return present
-
-        diffs = np.zeros(self.N + 1, dtype=np.int8)
-        # used diffs are indices 1..N
-        diffs[np.fromiter(self._diff_set, dtype=np.int32, count=len(self._diff_set))] = 1
-        return {"present": present, "diffs_used": diffs}
-
-    def action_mask(self) -> np.ndarray:
-        """
-        Mask to be applied on the actions
-        """
-        # Safety: STOP must always stay legal when enabled
-        if self.with_stop:
-            self._mask[self._stop_action] = not bool(self._mask[: self.N + 1].any())
-        # Absolute safety: never return an all-False mask (would create NaNs in masked softmax)
-        if not self._mask.any():
-            if self.with_stop:
-                self._mask[self._stop_action] = True
-            else:
-                self._mask[0] = True
-        return self._mask
-
-    def _invalidate(self, y: int) -> None:
-        if 0 <= y <= self.N and self._mask[y]:
-            self._mask[y] = False
-
-    def has_any_add_move(self) -> bool:
-        """
-        Check if there are still legal moves allowed
-        """
-        return bool(self._mask[: self.N + 1].any())
+        self._mask = self._slow_mask(self.N, self._vals, self.with_stop)
 
     def add(self, x: int) -> None:
         """
@@ -349,16 +252,31 @@ class SidonAddOnlyState:
             else:
                 self._mask[0] = True
 
-    def assert_mask_correct(self) -> None:
+
+
+class SidonAddEnv(DataClassGymEnv):
+    metadata = {"render_modes": []}
+
+    def __init__(
+        self,
+        params,
+    ):
+        start_set = params.start_set
+        with_stop = params.with_stop
+        invalid_action_terminates = params.invalid_action_terminates
+        self.N = int(params.N)
+        super().__init__(start_set=start_set,with_stop=with_stop,invalid_action_terminates=invalid_action_terminates)
+        # State
+        self.state = SidonAddOnlyState(
+            N=self.N,
+            with_stop=self.with_stop,
+            obs_include_diffs=params.obs_include_diffs,
+        )
+        self.state.reset(self._start_set)
+        self.build_action_state()
+
+    def compute_reward(self) -> int:
         """
-        Debug helper: recompute mask slowly and compare.
+        Returns a reward when one element is added to the set successfully. Set to 1 for uniform reward
         """
-        slow = _slow_mask(self.N, self._vals, self.with_stop)
-        if slow.shape != self._mask.shape or not np.array_equal(slow, self._mask):
-            # Provide a small diagnostic
-            diff_idx = np.where(slow != self._mask)[0]
-            sample = diff_idx[:20].tolist()
-            raise AssertionError(
-                f"Mask mismatch at {len(diff_idx)} indices (first 20: {sample}). "
-                f"Current set size={len(self._vals)}"
-            )
+        return max(1,len(self.state.vals)-int(np.sqrt(self.N)/2))

@@ -11,9 +11,21 @@ Primary exports:
 """
 
 from sidon_RL.sidon_rl_state import SidonAddOnlyState
-from sidon_RL.sidon_gym_env import SidonAddEnv
+from sidon_RL.sidon_rl_state import SidonAddEnv
 
 __all__ = [
     "SidonAddOnlyState",
     "SidonAddEnv",
 ]
+
+ENVS_RL = {
+    'sidon': SidonAddEnv,
+}
+
+
+def build_env(params):
+    """
+    Build environment.
+    """
+    env = ENVS_RL[params.env_name](params)
+    return env

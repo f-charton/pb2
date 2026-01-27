@@ -14,7 +14,7 @@ from sidon_RL.sidon_rl_state import SidonAddOnlyState, is_sidon
 
 def run_one(N: int, seed: int) -> None:
     rng = random.Random(seed)
-    st = SidonAddOnlyState(N=N, with_stop=True, obs_include_diffs=True, prefer_sidon_datapoint=False)
+    st = SidonAddOnlyState(N=N, with_stop=True, obs_include_diffs=True)
     st.reset([0])
 
     # Check initial correctness

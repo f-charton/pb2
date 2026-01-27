@@ -13,62 +13,33 @@ import numpy as np
 import gymnasium as gym
 from gymnasium.spaces import Discrete, Box, Dict as DictSpace
 
-from sidon_RL.sidon_rl_state import SidonAddOnlyState
 
 
-# def _as_start_set(x, N: int):
-#     """Accept a list[int] or a SidonSetDataPoint-like object with `.val`."""
-#     if x is None:
-#         return [0]
-#     # SidonSetDataPoint (or any object with .val)
-#     if hasattr(x, "val"):
-#         x = getattr(x, "val")
-#     # list/iterable of ints
-#     start = list(x)
-#     start = sorted(set(int(t) for t in start if 0 <= int(t) <= N))
-#     return start if len(start) > 0 else [0]
-
-
-class SidonAddEnv(gym.Env):
+class DataClassGymEnv(gym.Env):
     metadata = {"render_modes": []}
 
     def __init__(
         self,
-        N: int,
         start_set=None,
         with_stop: bool = True,
-        obs_include_diffs: bool = True,
-        prefer_sidon_datapoint: bool = True,
         invalid_action_terminates: bool = True,
     ):
         super().__init__()
-        self.N = int(N)
         self.with_stop = bool(with_stop)
-        self.obs_include_diffs = bool(obs_include_diffs)
-        self.prefer_sidon_datapoint = bool(prefer_sidon_datapoint)
         self.invalid_action_terminates = bool(invalid_action_terminates)
         self._start_set = [0] if start_set is None else list(start_set)
 
-        # State
-        self.state = SidonAddOnlyState(
-            N=self.N,
-            with_stop=self.with_stop,
-            obs_include_diffs=self.obs_include_diffs,
-            prefer_sidon_datapoint=self.prefer_sidon_datapoint,
-        )
-        self.state.reset(self._start_set)
-
-        # Spaces
-        self.action_space = Discrete(self.state.action_space_n)
-        if not self.obs_include_diffs:
-            self.observation_space = Box(low=0, high=1, shape=(self.N + 1,), dtype=np.int8)
-        else:
+    def build_action_state(self):
+        if getattr(self.state, "obs_include_diffs", False):
             self.observation_space = DictSpace(
                 {
                     "present": Box(low=0, high=1, shape=(self.N + 1,), dtype=np.int8),
                     "diffs_used": Box(low=0, high=1, shape=(self.N + 1,), dtype=np.int8),
                 }
             )
+        else:
+            self.observation_space = Box(low=0, high=1, shape=(self.N + 1,), dtype=np.int8)
+        self.action_space = Discrete(self.state.action_space_n)
 
     def reset(self, seed: Optional[int] = None, options: Optional[Dict[str, Any]] = None):
         super().reset(seed=seed)
@@ -81,17 +52,23 @@ class SidonAddEnv(gym.Env):
         info = {"size": len(self.state.vals), "start_size": self._episode_start_size}
         return obs, info
 
+    def compute_reward(self) -> int:
+        raise NotImplementedError("No compute reward implemented")
+
     def action_masks(self) -> np.ndarray:
         mask = np.asarray(self.state.action_mask(), dtype=np.bool_).copy()
-        # Safety: never return all-False masks (would yield NaNs in MaskableCategorical)
+
+        #Never return all-False masks (would yield NaNs in MaskableCategorical)
         if not mask.any():
             if self.with_stop:
                 mask[self.state.stop_action] = True
             else:
-                mask[0] = True
+                raise RuntimeError("No legal move permitted and stop is not permitted")
         return mask
     def step(self, action: int):
-        # STOP action (optional)
+        """
+        Makes one step in the env
+        """
         if self.with_stop and action == self.state.stop_action:
             obs = self.state.observation()
             final_size = len(self.state.vals)
@@ -123,7 +100,7 @@ class SidonAddEnv(gym.Env):
 
         # Legal add
         self.state.add(int(action))
-        reward = (len(self.state.vals)-1)**2-len(self.state.vals)**2
+        reward = self.compute_reward()
 
         # Terminal if no add moves remain (agent can also STOP earlier)
         terminated = not self.state.has_any_add_move()

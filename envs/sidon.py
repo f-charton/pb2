@@ -32,7 +32,7 @@ class SidonSetDataPoint(DataPoint):
     Candidate Sidon set. The candidate is a Sidon set if the number of collisions is zero.
     """
     random_greedy_search = True
-    def __init__(self, val:Optional[List]=None, N:int=None, init=False):
+    def __init__(self, val:Optional[List]=None, N:Optional[int]=None, init=False):
         super().__init__()
         self.N = N
         total_prob = self.insert_prob + self.delete_prob + self.shift_prob
@@ -330,7 +330,7 @@ class SidonSetDataPoint(DataPoint):
         """
         if self.temp <= 0:
             return False
-        return random.random() < math.exp(delta_score / max(1e-9, self.temp))
+        return np.random.random() < math.exp(delta_score / max(1e-9, self.temp))
 
 
 
@@ -613,11 +613,11 @@ class SidonSetDataPoint(DataPoint):
 
     @classmethod
     def _update_class_params(cls,pars):
-        cls.M, cls.hard, cls.insert_prob, cls.delete_prob, cls.shift_prob, cls.temp, cls.temp_decay, cls.init_method, cls.init_k, cls.jitter_init, cls.steps, cls.random_greedy_search = pars
+        cls.N, cls.M, cls.hard, cls.insert_prob, cls.delete_prob, cls.shift_prob, cls.temp, cls.temp_decay, cls.init_method, cls.init_k, cls.jitter_init, cls.steps, cls.random_greedy_search = pars
 
     @classmethod
     def _save_class_params(cls):
-        return (cls.M, cls.hard, cls.insert_prob, cls.delete_prob, cls.shift_prob, cls.temp, cls.temp_decay, cls.init_method, cls.init_k, cls.jitter_init, cls.steps, cls.random_greedy_search)
+        return (cls.N, cls.M, cls.hard, cls.insert_prob, cls.delete_prob, cls.shift_prob, cls.temp, cls.temp_decay, cls.init_method, cls.init_k, cls.jitter_init, cls.steps, cls.random_greedy_search)
 
 
 
