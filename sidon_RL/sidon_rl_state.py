@@ -21,7 +21,7 @@ from envs.sidon import SidonSetDataPoint
 import bisect
 import numpy as np
 
-from sidon_RL.sidon_gym_env import DataClassGymEnv
+from sidon_RL.gym_env import DataClassGymEnv
 
 _SIDON_CLASS_PARAMS_INITIALIZED = False
 
