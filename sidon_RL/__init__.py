@@ -23,7 +23,7 @@ ENVS_RL = {
 }
 
 
-def build_env(params):
+def build_RL_env(params):
     """
     Build environment.
     """

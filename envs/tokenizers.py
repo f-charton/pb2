@@ -382,9 +382,14 @@ class SidonTokenizer(Tokenizer):
                     #fallback to an explicit method
                     num = 0
                     for v in sub_list:
-                        if v < 0 or v >= self.base:
-                            raise ValueError(f"Digit {v} out of range for self.base {self.base}")
-                        num = num * self.base + v
+                        try:
+                            v_num = int(v)
+                            if v_num < 0 or v_num >= self.base:
+                                raise ValueError(f"Digit {v} with value {v_num} out of range for self.base {self.base}")
+                            num = num * self.base + v_num
+                        except ValueError as e:
+                            raise e
+
                     # print("HERE num", num)
                 if num > N:
                     print("HERE num pas ouf")
@@ -396,7 +401,7 @@ class SidonTokenizer(Tokenizer):
             print(f"Value error in the generation {e}")
             return None
         if len(result) == 0:
-            print(f"Empty decoded list for {lst} with sublists {sub_lists}.")
+            print(f"Empty decoded list for {lst} with 5 firsts elements {lst[:5]} and with sublists {sub_lists}.")
             return None
         val = sorted(result)
         sidonpoint = self.dataclass(val=val,N=N,init=True)

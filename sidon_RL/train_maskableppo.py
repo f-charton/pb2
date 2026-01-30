@@ -16,7 +16,7 @@ from datetime import datetime
 import re
 from typing import List, Optional
 
-from sidon_RL import build_env
+from sidon_RL import build_RL_env
 from utils import bool_flag
 
 
@@ -29,7 +29,7 @@ def main():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--no-diffs-obs", action="store_true", help="Use membership-only observation.")
     parser.add_argument("--no-stop", action="store_true", help="Remove STOP action (not recommended).")
-    parser.add_argument("--logdir", type=str, default="runs_sidon")
+    parser.add_argument("--logdir", type=str, default="RL_models")
     parser.add_argument("--start_set", type=str, default="")
     parser.add_argument("--with_stop", type=bool_flag, default="true")
     parser.add_argument("--invalid_action_terminates", type=bool_flag, default="false")
@@ -80,7 +80,7 @@ def main():
         args.obs_include_diffs = False
     args.start_set = _parse_start_set(args.start_set)
 
-    env = build_env(args)
+    env = build_RL_env(args)
     #restart from here
     # env = SidonAddEnv(
     #     N=args.n,

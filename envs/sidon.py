@@ -1,5 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
+from types import SimpleNamespace
 import numpy as np
 from logging import getLogger
 from typing import Dict, List, Tuple, Optional
@@ -10,6 +11,7 @@ import math
 import bisect
 
 from envs.tokenizers import SidonTokenizer
+from sidon_RL import build_RL_env
 from utils import bool_flag
 
 logger = getLogger()
@@ -116,7 +118,29 @@ class SidonSetDataPoint(DataPoint):
         self.calc_score()
         self.local_search()
 
+    def _build_RL_env(
+        self,
+        *,
+        env_name: str = "sidon",
+        with_stop: bool = True,
+        obs_include_diffs: bool = False,
+        invalid_action_terminates: bool = True,
+    ):
+        # Local import avoids any import-cycle issues
+        from sidon_RL import build_RL_env
 
+        if self.N is None:
+            raise ValueError("SidonSetDataPoint.N is None (construct with N=...)")
+
+        params = SimpleNamespace(
+            env_name=env_name,
+            N=int(self.N),
+            start_set=list(self.val),
+            with_stop=bool(with_stop),
+            obs_include_diffs=bool(obs_include_diffs),
+            invalid_action_terminates=bool(invalid_action_terminates),
+        )
+        return build_RL_env(params)
 
     def local_search(self) -> None:
         """
@@ -156,7 +180,14 @@ class SidonSetDataPoint(DataPoint):
             if self.score < 0:
                 raise RuntimeError("score negative even after local_search random greedy, should not be possible")
             return
-
+        if len(self.RL_model_path)>0:
+            print("HERE")
+            vals = self.RL_local_search(self.RL_model_path)
+            self.val = sorted(set(int(x) for x in vals))
+            self._build_diffs()
+            self.calc_score()
+            self.calc_features()
+            return
 
         # old_score = self.score # debug
         # print("HERE OLD", old_score)
@@ -613,11 +644,11 @@ class SidonSetDataPoint(DataPoint):
 
     @classmethod
     def _update_class_params(cls,pars):
-        cls.N, cls.M, cls.hard, cls.insert_prob, cls.delete_prob, cls.shift_prob, cls.temp, cls.temp_decay, cls.init_method, cls.init_k, cls.jitter_init, cls.steps, cls.random_greedy_search = pars
+        cls.M, cls.hard, cls.insert_prob, cls.delete_prob, cls.shift_prob, cls.temp, cls.temp_decay, cls.init_method, cls.init_k, cls.jitter_init, cls.steps, cls.random_greedy_search = pars
 
     @classmethod
     def _save_class_params(cls):
-        return (cls.N, cls.M, cls.hard, cls.insert_prob, cls.delete_prob, cls.shift_prob, cls.temp, cls.temp_decay, cls.init_method, cls.init_k, cls.jitter_init, cls.steps, cls.random_greedy_search)
+        return (cls.M, cls.hard, cls.insert_prob, cls.delete_prob, cls.shift_prob, cls.temp, cls.temp_decay, cls.init_method, cls.init_k, cls.jitter_init, cls.steps, cls.random_greedy_search)
 
 
 
@@ -646,6 +677,7 @@ class SidonSetEnvironment(BaseEnvironment):
         self.data_class.delete_prob = float(params.delete_prob)
         self.data_class.shift_prob  = float(params.shift_prob)
         self.data_class.random_greedy_search = params.random_greedy_search
+        self.data_class.RL_model_path = params.RL_model_path
 
         self.tokenizer = SidonTokenizer(self.data_class, int(params.min_N), int(params.max_N), params.nosep, params.base, self.SPECIAL_SYMBOLS, separator="SEP")
 
@@ -672,3 +704,4 @@ class SidonSetEnvironment(BaseEnvironment):
         parser.add_argument('--sidon_steps', type=int, default=2000, help='number of steps in local search')
         parser.add_argument('--nosep', type=bool_flag, default="false", help='separator')
         parser.add_argument("--random_greedy_search",type=bool_flag, default="true", help='use a random greedy search for the local search instead of insert / delete / shift moves')
+        parser.add_argument("--RL_model_path",type=str, default="", help='If not empty, uses the RL model from the path in the local search instead of the usual local search')

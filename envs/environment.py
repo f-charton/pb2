@@ -6,6 +6,8 @@ import statistics
 from collections import Counter, defaultdict
 import numpy as np
 from copy import deepcopy
+from sb3_contrib import MaskablePPO
+from sidon_RL.rl_state import RLDataclass
 
 logger=getLogger()
 
@@ -26,6 +28,26 @@ class DataPoint(ABC):
 
     def local_search(self):
         return
+
+    def _build_RL_env(self) -> RLDataclass:
+        raise NotImplementedError("No RL env implemented")
+
+    def RL_local_search(self,model_path,n_steps=1000):
+        """
+        RL local search
+        """
+        env = self._build_RL_env()
+        model = MaskablePPO.load(path=model_path,device="cpu")
+        obs, _ = env.reset()
+        for _ in range(n_steps):
+            action_masks = env.action_masks()
+            action, _ = model.predict(obs, action_masks=action_masks, deterministic=True)
+            obs, _, terminated, truncated, _ = env.step(action)
+            if terminated or truncated:
+                break
+        #Return datapoint from env
+        return env.state.vals
+
 
     def redeem(self):
         return

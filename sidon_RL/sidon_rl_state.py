@@ -16,51 +16,11 @@ from __future__ import annotations
 from sidon_RL.rl_state import RLDataclass
 from dataclasses import dataclass
 from typing import Any, List, Optional, Set, Tuple
-from envs.sidon import SidonSetDataPoint
-
 import bisect
 import numpy as np
 
 from sidon_RL.gym_env import DataClassGymEnv
 
-_SIDON_CLASS_PARAMS_INITIALIZED = False
-
-def _ensure_sidon_class_params(N: int) -> None:
-    """
-    SidonSetDataPoint expects several class-level parameters (insert_prob, delete_prob, ...)
-    to be set (normally by SidonSetEnvironment). When we use SidonSetDataPoint standalone
-    in Gym/RL, we must set them once to avoid:
-        AttributeError: 'SidonSetDataPoint' object has no attribute 'insert_prob'
-    """
-    global _SIDON_CLASS_PARAMS_INITIALIZED
-    if _SIDON_CLASS_PARAMS_INITIALIZED:
-        return
-
-    if hasattr(SidonSetDataPoint, "_update_class_params"):
-        pars = (
-            int(N),   # N
-            1,        # M
-            True,     # hard
-            0.35,     # insert_prob
-            0.10,     # delete_prob
-            0.55,     # shift_prob
-            0.0,      # temp
-            1.0,      # temp_decay
-            "random_greedy",  # init_method
-            -1,       # init_k
-            False,    # jitter_init
-            0,        # steps
-            True,     # random_greedy_search
-        )
-        SidonSetDataPoint._update_class_params(pars)  # type: ignore[attr-defined]
-    else:
-        # Fallback: set the minimal attributes that SidonSetDataPoint.__init__ expects.
-        SidonSetDataPoint.N = int(N)              # type: ignore[attr-defined]
-        SidonSetDataPoint.insert_prob = 0.35      # type: ignore[attr-defined]
-        SidonSetDataPoint.delete_prob = 0.10      # type: ignore[attr-defined]
-        SidonSetDataPoint.shift_prob = 0.55       # type: ignore[attr-defined]
-
-    _SIDON_CLASS_PARAMS_INITIALIZED = True
 
 def is_sidon(vals: List[int]) -> bool:
     """Helper to check sidon property: all positive pairwise differences are distinct."""
@@ -138,32 +98,9 @@ class SidonAddOnlyState(RLDataclass):
         start = [] if start_set is None else list(start_set)
         start = sorted(set(int(x) for x in start if 0 <= int(x) <= self.N))
 
-        if SidonSetDataPoint is not None:
-            # Create a minimal SidonSetDataPoint instance without triggering its expensive init logic.
-            # We avoid calling init=True to prevent local_search / other side effects.
-            SidonSetDataPoint.init_k = np.random.randint(max(1, int(np.sqrt(self.N))))
-            _ensure_sidon_class_params(self.N)
-            if len(start) == 0 or start == [0]:
-                dp = SidonSetDataPoint(N=self.N,init=True)  # type: ignore
-            else:
-                dp = SidonSetDataPoint(val = [],N=self.N, init=False)  # type: ignore
-                dp.val = list(start)
-                dp._build_diffs()
-            self._dp = dp
-            self._use_dp = True
-            # except Exception as e:
-            #     # Fallback if the surrounding infrastructure is required.
-            #     print("HERE",e)
-                # self._dp = _InternalSidonDP(self.N, start)
-                # self._use_dp = False
-        else:
-            if len(start) == 0:
-                start = [0]
-            raise RuntimeError("dataclass SidonSetDataPoint not found")
-            # self._dp = _InternalSidonDP(self.N, start)
-            # self._use_dp = False
-
-        self._vals = self._dp.val  # reference (sorted list)
+        if len(start) == 0:
+            start = [0]
+        self._vals = start[:]  # plain python list (sorted)
         self._valset: Set[int] = set(self._vals)
 
         # Maintain used diffs as both:
@@ -209,7 +146,7 @@ class SidonAddOnlyState(RLDataclass):
             diffs_added.append(d)
 
         # Update underlying datapoint diffs_count incrementally (and val list).
-        _ = self._dp._add_element(x)
+        bisect.insort(self._vals, x)
 
         # Update our own bookkeeping for diffs
         for d in diffs_added:
