@@ -222,6 +222,95 @@ class SquareDataPoint(CycleDataPoint):
             self.cycles.append(((min(a, b), max(a, b)), (min(b, c), max(b, c)), (min(c, d), max(c, d)), (min(d, a), max(d, a))))
 
 
+class TriangleSquareDataPoint(CycleDataPoint):
+    TASK = "3and4cycles"
+    PENALTY = 4
+
+    def _add_edges_greedily(self):
+        np.random.seed(None)
+        adjmat_3cycle = self.matrix @ self.matrix
+        adjmat_4cycle = self.matrix @ self.matrix @ self.matrix
+        
+        allowed_edges = []
+        for i in range(self.N):
+            for j in range(i + 1, self.N):
+                if self.matrix[i, j] == 0 and adjmat_3cycle[i, j] == 0 and adjmat_4cycle[i, j] == 0:
+                    allowed_edges.append((i, j))
+
+        while allowed_edges:
+            i, j = allowed_edges[np.random.randint(len(allowed_edges))]
+            self.matrix[i, j] = 1
+            self.matrix[j, i] = 1
+            new_allowed_edges = []
+            adjmat_3cycle = self.matrix @ self.matrix
+            adjmat_4cycle = self.matrix @ self.matrix @ self.matrix
+            for a, b in allowed_edges:
+                if self.matrix[a, b] == 0 and adjmat_3cycle[a, b] == 0 and adjmat_4cycle[a, b] == 0:
+                    new_allowed_edges.append((a, b))
+            allowed_edges = new_allowed_edges
+
+    def _cycles_computation(self):
+        row_bits = []
+        for i in range(self.N):
+            mask = 0
+            for j in range(self.N):
+                if self.matrix[i, j] == 1:
+                    mask |= 1 << j
+            row_bits.append(mask)
+
+        self.cycles = []
+        
+        # Find triangles (3-cycles)
+        triangles = set()
+        for i in range(self.N):
+            bits_i = row_bits[i]
+            for j in range(i + 1, self.N):
+                if self.matrix[i, j] == 1:
+                    common = bits_i & row_bits[j]
+                    x = common
+                    while x:
+                        lsb_u = x & -x
+                        u = lsb_u.bit_length() - 1
+                        x ^= lsb_u
+                        elems = sorted([i, u, j])
+                        a, b, c = elems
+                        triangles.add((a, b, c))
+        
+        for cycle in triangles:
+            a, b, c = cycle
+            self.cycles.append(((a, b), (b, c), (a, c)))
+        
+        # Find squares (4-cycles)
+        squares = set()
+        for i in range(self.N):
+            bits_i = row_bits[i]
+            for j in range(i + 1, self.N):
+                common = bits_i & row_bits[j]
+                x = common
+                while x:
+                    lsb_u = x & -x
+                    u = lsb_u.bit_length() - 1
+                    x ^= lsb_u
+                    y = x
+                    while y:
+                        lsb_v = y & -y
+                        v = lsb_v.bit_length() - 1
+                        y ^= lsb_v
+
+                        elems = [i, u, j, v]
+                        a = min(elems)
+                        min_idx = elems.index(a)
+                        neighbours = [elems[(min_idx + 1) % 4], elems[(min_idx - 1) % 4]]
+                        b = min(neighbours)
+                        d = max(neighbours)
+                        c = sum(elems) - a - b - d
+                        squares.add((a, b, c, d))
+
+        for cycle in squares:
+            a, b, c, d = cycle
+            self.cycles.append(((min(a, b), max(a, b)), (min(b, c), max(b, c)), (min(c, d), max(c, d)), (min(d, a), max(d, a))))
+
+
 class CycleEnvironment(BaseEnvironment):
     # this problem lives in N^2, so we can use k=2
     # this problem is symmetric, so we can use is_adj_matrix_symmetric=True
@@ -270,5 +359,11 @@ class SquareEnvironment(CycleEnvironment):
 
 class TriangleEnvironment(CycleEnvironment):
     data_class = TriangleDataPoint
+    def __init__(self, params):
+        super().__init__(params)
+
+
+class TriangleSquareEnvironment(CycleEnvironment):
+    data_class = TriangleSquareDataPoint
     def __init__(self, params):
         super().__init__(params)
